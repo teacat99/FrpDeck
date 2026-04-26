@@ -57,6 +57,13 @@ export const useAuthStore = defineStore('auth', () => {
     me.value = null
     lastLogin.value = null
     localStorage.removeItem('frpdeck.token')
+    // Tear down the realtime channel here rather than at the call site
+    // so every logout path (manual button, 401 interceptor, page
+    // unmount) gets the same treatment. We `import()` lazily so the
+    // realtime store doesn't appear before pinia is initialised.
+    void import('./realtime').then(({ useRealtimeStore }) => {
+      useRealtimeStore().disconnect()
+    })
   }
 
   return { token, mode, required, me, lastLogin, isAdmin, role, refreshStatus, fetchMe, login, logout }

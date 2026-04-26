@@ -166,3 +166,35 @@ export interface VersionInfo {
   frp_version: string
   driver: string
 }
+
+// Realtime event envelope. The backend emits these on /api/ws after the
+// client subscribes to topics like "tunnels" / "endpoints" /
+// "logs:endpoint:<id>" / "logs:tunnel:<id>". Mirrors `frpcd.Event`.
+export type RealtimeEventType = 'endpoint_state' | 'tunnel_state' | 'log'
+
+export interface RealtimeEvent {
+  type: RealtimeEventType
+  endpoint_id?: number
+  tunnel_id?: number
+  state?: string
+  err?: string
+  level?: string
+  msg?: string
+  at: string
+}
+
+// Endpoint runtime states emitted by the driver. We stick to the same
+// vocabulary the backend uses so a literal switch maps directly to UI
+// badges without translation.
+export type EndpointState = 'disconnected' | 'connecting' | 'connected' | 'failed'
+
+// Tunnel runtime states emitted by the driver. Distinct from the
+// persisted `Tunnel.status` field; the live state is a richer view of
+// what the running frpc engine reports.
+export type TunnelRuntimeState =
+  | 'pending'
+  | 'starting'
+  | 'running'
+  | 'check_failed'
+  | 'stopped'
+  | 'error'

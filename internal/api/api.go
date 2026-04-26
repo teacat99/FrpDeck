@@ -79,6 +79,11 @@ func (s *Server) Router(engine *gin.Engine) {
 	pub.POST("/auth/login", s.auth.LoginHandler)
 	pub.GET("/auth/captcha", s.handleIssueCaptcha)
 	pub.GET("/version", s.handleVersion)
+	// WebSocket sits on the public group: the gin auth middleware
+	// only knows how to validate Authorization headers, but browsers
+	// cannot set those on a WS handshake, so the WS handler does its
+	// own JWT check via the Sec-WebSocket-Protocol subprotocol.
+	pub.GET("/ws", s.handleWebSocket)
 
 	g := engine.Group("/api", s.auth.Middleware())
 

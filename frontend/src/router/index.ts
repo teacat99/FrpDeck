@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useRealtimeStore } from '@/stores/realtime'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -40,6 +41,12 @@ router.beforeEach(async (to, _from, next) => {
   if (to.meta?.adminOnly && auth.me && auth.me.role !== 'admin') {
     next({ name: 'home' })
     return
+  }
+  // Bring the realtime channel up as soon as we know the user is
+  // authenticated. ensureConnected is idempotent and a no-op without
+  // a token, so doing it on every guard run is safe.
+  if (auth.token) {
+    useRealtimeStore().ensureConnected()
   }
   next()
 })

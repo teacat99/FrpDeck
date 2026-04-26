@@ -149,7 +149,14 @@ export default {
       heartbeat_interval: 'Heartbeat interval (s)',
       heartbeat_timeout: 'Heartbeat timeout (s)',
       enabled: 'Enabled',
-      auto_start: 'Auto start'
+      auto_start: 'Auto start',
+      live_state: 'Live'
+    },
+    state: {
+      disconnected: 'Disconnected',
+      connecting: 'Connecting',
+      connected: 'Connected',
+      failed: 'Failed'
     }
   },
   tunnel: {
@@ -199,6 +206,14 @@ export default {
       expired: 'Expired',
       stopped: 'Stopped',
       failed: 'Failed'
+    },
+    live: {
+      pending: 'Pending',
+      starting: 'Starting',
+      running: 'Running',
+      check_failed: 'Health-check failed',
+      stopped: 'Stopped',
+      error: 'Error'
     },
     validation: {
       type_required: 'Pick a tunnel type',

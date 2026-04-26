@@ -28,10 +28,12 @@ import {
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
+import { useRealtimeStore } from '@/stores/realtime'
 import { addRelative, formatRemaining, toIsoOrNull, toLocalInput } from '@/lib/expire'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const realtime = useRealtimeStore()
 
 const tunnels = ref<Tunnel[]>([])
 const endpoints = ref<Endpoint[]>([])
@@ -344,14 +346,33 @@ function remainingForRow(tn: Tunnel): string | null {
   return formatRemaining(tn.expire_at ?? null)
 }
 
+let unsubTunnels: (() => void) | null = null
+
 onMounted(() => {
   reload()
   tickHandle = window.setInterval(() => { nowTick.value = Date.now() }, 1000)
+  realtime.ensureConnected()
+  unsubTunnels = realtime.subscribeTunnels()
 })
 
 onUnmounted(() => {
   if (tickHandle) clearInterval(tickHandle)
+  unsubTunnels?.()
+  unsubTunnels = null
 })
+
+// liveStateLabel surfaces the driver's runtime tunnel state when it
+// disagrees with the persisted status (e.g. status=active but the
+// driver actually reports check_failed). Returns null when the live
+// state is in sync with the DB so we don't render redundant chrome.
+function liveStateLabel(tn: Tunnel): string | null {
+  const live = realtime.tunnelState(tn.id)
+  if (!live) return null
+  // Active vs running mean the same thing to the user; suppress.
+  if (live === 'running' && tn.status === 'active') return null
+  if (live === 'stopped' && tn.status === 'stopped') return null
+  return live
+}
 </script>
 
 <template>
@@ -408,7 +429,12 @@ onUnmounted(() => {
             </Badge>
           </TableCell>
           <TableCell>
-            <Badge :variant="statusVariant[tn.status]">{{ t(`tunnel.status.${tn.status}`) }}</Badge>
+            <div class="flex items-center gap-2">
+              <Badge :variant="statusVariant[tn.status]">{{ t(`tunnel.status.${tn.status}`) }}</Badge>
+              <Badge v-if="liveStateLabel(tn)" variant="outline" class="font-mono text-[10px]">
+                {{ t('tunnel.live.' + liveStateLabel(tn)!) }}
+              </Badge>
+            </div>
           </TableCell>
           <TableCell class="text-right">
             <Button v-if="auth.isAdmin && tn.status !== 'active'" size="icon" variant="ghost" @click="start(tn)">

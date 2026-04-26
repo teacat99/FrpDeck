@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, RefreshCw, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -23,9 +23,11 @@ import {
 } from '@/api/endpoints'
 import type { Endpoint, EndpointWrite } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
+import { useRealtimeStore } from '@/stores/realtime'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const realtime = useRealtimeStore()
 
 const rows = ref<Endpoint[]>([])
 const loading = ref(false)
@@ -178,7 +180,33 @@ async function remove(ep: Endpoint) {
   }
 }
 
-onMounted(reload)
+// Subscribe to live endpoint state on mount; unsubscribe on unmount
+// so the WS server stops sending us events nobody is rendering.
+let unsubEndpoints: (() => void) | null = null
+
+onMounted(async () => {
+  await reload()
+  realtime.ensureConnected()
+  unsubEndpoints = realtime.subscribeEndpoints()
+})
+
+onBeforeUnmount(() => {
+  unsubEndpoints?.()
+  unsubEndpoints = null
+})
+
+// Tone-mapping for the live endpoint badge. Defaulting to "secondary"
+// keeps unfamiliar future states from rendering as visual noise.
+function endpointBadgeVariant(state: string): 'default' | 'secondary' | 'outline' | 'destructive' {
+  switch (state) {
+    case 'connected': return 'default'
+    case 'connecting': return 'secondary'
+    case 'failed': return 'destructive'
+    case 'disconnected':
+    default:
+      return 'outline'
+  }
+}
 </script>
 
 <template>
@@ -209,6 +237,7 @@ onMounted(reload)
           <TableHead>{{ t('endpoint.field.driver') }}</TableHead>
           <TableHead>{{ t('endpoint.field.tls_enable') }}</TableHead>
           <TableHead>{{ t('endpoint.field.enabled') }}</TableHead>
+          <TableHead>{{ t('endpoint.field.live_state') }}</TableHead>
           <TableHead class="text-right">{{ t('common.actions') }}</TableHead>
         </TableRow>
       </TableHeader>
@@ -233,6 +262,11 @@ onMounted(reload)
           <TableCell>
             <Badge :variant="ep.enabled ? 'default' : 'outline'">
               {{ ep.enabled ? t('common.on') : t('common.off') }}
+            </Badge>
+          </TableCell>
+          <TableCell>
+            <Badge :variant="endpointBadgeVariant(realtime.endpointState(ep.id))">
+              {{ t('endpoint.state.' + realtime.endpointState(ep.id)) }}
             </Badge>
           </TableCell>
           <TableCell class="text-right">

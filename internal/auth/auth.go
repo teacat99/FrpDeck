@@ -483,6 +483,19 @@ func (a *Authenticator) checkJWT(c *gin.Context) (bool, *model.User) {
 		return false, nil
 	}
 	raw := strings.TrimPrefix(header, "Bearer ")
+	return a.ValidateRawToken(raw)
+}
+
+// ValidateRawToken is the entry point used by transports that cannot
+// pass an Authorization header — currently the WebSocket upgrader, which
+// receives the JWT through the `Sec-WebSocket-Protocol` subprotocol
+// instead of an HTTP header. Returns (true, user) iff the token is well
+// formed, signed by us, not expired, and the referenced account is
+// enabled.
+func (a *Authenticator) ValidateRawToken(raw string) (bool, *model.User) {
+	if raw == "" {
+		return false, nil
+	}
 	tok, err := jwt.Parse(raw, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")

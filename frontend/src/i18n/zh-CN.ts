@@ -149,7 +149,14 @@ export default {
       heartbeat_interval: '心跳间隔（秒）',
       heartbeat_timeout: '心跳超时（秒）',
       enabled: '启用',
-      auto_start: '随启动'
+      auto_start: '随启动',
+      live_state: '运行态'
+    },
+    state: {
+      disconnected: '未连接',
+      connecting: '连接中',
+      connected: '已连接',
+      failed: '失败'
     }
   },
   tunnel: {
@@ -199,6 +206,14 @@ export default {
       expired: '已过期',
       stopped: '已停止',
       failed: '失败'
+    },
+    live: {
+      pending: '待启动',
+      starting: '启动中',
+      running: '运行中',
+      check_failed: '健康检查失败',
+      stopped: '已停止',
+      error: '错误'
     },
     validation: {
       type_required: '请选择隧道类型',

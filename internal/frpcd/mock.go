@@ -35,6 +35,10 @@ func NewMock() *Mock {
 // publishes events on its own, but tests can inject events through it.
 func (m *Mock) Subscribe() (<-chan Event, func()) { return m.bus.Subscribe() }
 
+// Bus exposes the underlying EventBus so tests can publish synthetic
+// events to drive the WebSocket / lifecycle reconciler under test.
+func (m *Mock) Bus() *EventBus { return m.bus }
+
 // Name reports the driver kind. Used in logs and the /api/version
 // endpoint so operators can see which driver is live.
 func (m *Mock) Name() string { return "mock" }
