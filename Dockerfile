@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 2: backend build ----
-FROM golang:1.25-alpine AS backend
+FROM golang:1.26-alpine AS backend
 WORKDIR /src
 RUN apk add --no-cache git
 # Allow overriding the Go module proxy at build time for environments where
