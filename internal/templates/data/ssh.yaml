@@ -1,0 +1,15 @@
+id: ssh
+icon: TerminalSquare
+name: ssh
+description: ssh
+audience: ssh
+prereq:
+  - ssh.prereq.allowports
+  - ssh.prereq.sshd
+defaults:
+  type: tcp
+  local_ip: 127.0.0.1
+  local_port: 22
+  remote_port: 22022
+  enabled: true
+  auto_start: true

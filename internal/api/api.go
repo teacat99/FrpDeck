@@ -21,6 +21,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/config"
 	"github.com/teacat99/FrpDeck/internal/diag"
 	"github.com/teacat99/FrpDeck/internal/frpshelper"
+	"github.com/teacat99/FrpDeck/internal/templates"
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
 	"github.com/teacat99/FrpDeck/internal/model"
@@ -107,6 +108,7 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.DELETE("/endpoints/:id", s.handleDeleteEndpoint)
 
 	// Tunnels (frp proxies / visitors).
+	g.GET("/tunnels/templates", s.handleListTunnelTemplates)
 	g.GET("/tunnels", s.handleListTunnels)
 	g.POST("/tunnels", s.handleCreateTunnel)
 	g.GET("/tunnels/:id", s.handleGetTunnel)
@@ -642,6 +644,24 @@ func (s *Server) handleAdviseTunnelFrps(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, frpshelper.Advise(ep, t))
+}
+
+// handleListTunnelTemplates returns the embedded scenario templates
+// described in plan.md §7.2 ("场景模板 × 10"). The frontend renders
+// these as a wizard: pick → defaults flow into the create-tunnel
+// form. Read-only and tiny payload, so we don't paginate.
+//
+// Why GET on /tunnels/templates: piggybacks on the existing tunnels
+// route group which already enforces auth + IP whitelist. The route
+// is open to any authenticated user (not admin-only) because the
+// data is the same compile-time YAML for everyone.
+func (s *Server) handleListTunnelTemplates(c *gin.Context) {
+	all, err := templates.All()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"templates": all})
 }
 
 // pushTunnelToDriver looks up the endpoint and registers/refreshes the

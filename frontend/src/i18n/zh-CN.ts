@@ -310,6 +310,89 @@ export default {
       auto_start: '随启动'
     }
   },
+  template: {
+    audience: '适用人群',
+    wizard: {
+      action: '场景模板',
+      title: '从场景模板创建',
+      subtitle: '选择一个常见场景，FrpDeck 会预填好对应类型/端口/角色，再让你确认细节。',
+      loading: '正在加载模板…',
+      empty: '暂无模板'
+    },
+    'web-http': {
+      name: '暴露 Web 网站到公网',
+      desc: 'HTTP + 自定义域名/子域名，适合个人博客、内网仪表盘等纯 HTTP 站点',
+      audience: '在内网跑了一个 HTTP 服务，想给朋友/同事访问'
+    },
+    'web-http.prereq.vhost': 'frps.toml 已配置 vhostHTTPPort（默认 80）',
+    'web-http.prereq.dns': '已把目标域名 DNS 解析到 frps 公网 IP',
+    'web-https': {
+      name: '暴露 HTTPS 网站到公网',
+      desc: 'HTTPS + 自定义域名，frps 走 SNI 路由，TLS 证书在内网服务自行处理',
+      audience: '内网服务已自带 HTTPS，想直接以 https://your-domain 暴露'
+    },
+    'web-https.prereq.vhost': 'frps.toml 已配置 vhostHTTPSPort（默认 443）',
+    'web-https.prereq.cert': '内网服务已就绪 TLS 证书（或使用通配符证书 + frps https2http）',
+    'web-https.prereq.dns': '已把目标域名 DNS 解析到 frps 公网 IP',
+    rdp: {
+      name: 'RDP 远程桌面',
+      desc: 'TCP + remote_port，把 Windows 远程桌面经 frps 暴露',
+      audience: '出差/在外想连家里 Windows 桌面'
+    },
+    'rdp.prereq.allowports': 'frps.toml allowPorts 已包含 13389（或为空白名单）',
+    'rdp.prereq.firewall': 'Windows 防火墙已放行 RDP（默认 3389）',
+    ssh: {
+      name: 'SSH 跳板',
+      desc: 'TCP + remote_port，远程 ssh -p 22022 user@frps_addr 即可登入内网机',
+      audience: '需要远程 ssh 登录家里/办公室的 Linux 机器'
+    },
+    'ssh.prereq.allowports': 'frps.toml allowPorts 已包含 22022',
+    'ssh.prereq.sshd': '本机 sshd 服务正常运行（默认 22 端口监听）',
+    'db-share': {
+      name: '暴露 MySQL/Redis 给同事',
+      desc: 'TCP + 临时隧道（默认 4 小时自动停），用完即焚，避免长期暴露数据库',
+      audience: '临时让同事/客户连一下数据库做调试'
+    },
+    'db-share.prereq.allowports': 'frps.toml allowPorts 已包含 13306',
+    'db-share.prereq.tempnote': '默认 4 小时后自动到期；可在保存前调整或清空过期时间',
+    'nas-p2p': {
+      name: 'p2p 访问家里 NAS',
+      desc: 'xtcp visitor，握手用 frps 协调，真正流量走 P2P 直连，绕开带宽限制',
+      audience: '家里 NAS 文件多/大，不想走 frps 中转浪费带宽'
+    },
+    'nas-p2p.prereq.peer': 'NAS 端已部署 server 角色的 xtcp（同一个 sk）',
+    'nas-p2p.prereq.stun': 'frps.toml 已配置 natHoleStunServer',
+    'nas-p2p.prereq.shared-sk': 'visitor 与 server 必须使用完全相同的 sk',
+    socks5: {
+      name: '私有 SOCKS5 代理',
+      desc: 'plugin: socks5，通过 frps 暴露一个 SOCKS5 代理，配合系统/浏览器代理使用',
+      audience: '想在外网用家里/办公室网络出口（IP/区域专属）'
+    },
+    'socks5.prereq.allowports': 'frps.toml allowPorts 已包含 11080',
+    'socks5.prereq.creds': '建议在 plugin_config 配置 plugin_user / plugin_passwd 鉴权',
+    'http-proxy': {
+      name: 'HTTP 反向代理跳板',
+      desc: 'plugin: http_proxy，通过 frps 暴露一个 HTTP 代理；浏览器/curl 设置 http_proxy 即可使用',
+      audience: '需要 HTTP 协议的代理出口，比 SOCKS5 更轻量'
+    },
+    'http-proxy.prereq.allowports': 'frps.toml allowPorts 已包含 18888',
+    'http-proxy.prereq.creds': '建议在 plugin_config 配置 plugin_user / plugin_passwd 鉴权',
+    'static-file': {
+      name: '静态文件分享',
+      desc: 'plugin: static_file，把本地一个目录通过 HTTP 暴露给外网下载',
+      audience: '一次性给别人发大文件，又不想用云盘'
+    },
+    'static-file.prereq.vhost': 'frps.toml 已配置 vhostHTTPPort 且域名已解析',
+    'static-file.prereq.path': 'plugin_config 中的 plugin_local_path 指向真实存在的目录',
+    'frpdeck-self': {
+      name: '远程代管 FrpDeck',
+      desc: 'stcp（自指），把 FrpDeck 自己的管理面（127.0.0.1:8080）通过 frps 安全暴露',
+      audience: '在外想登录家里那台 FrpDeck 看运行状态'
+    },
+    'frpdeck-self.prereq.shared-sk': 'visitor 端必须使用相同的 sk',
+    'frpdeck-self.prereq.password-mode': '强烈建议把 FrpDeck 切到 password 鉴权（绝不能 none）',
+    'frpdeck-self.prereq.visitor-side': '另一台机器上需有对应 stcp visitor 隧道'
+  },
   history: {
     title: '操作历史',
     subtitle: '审计日志：每一次写入都会留痕',

@@ -141,6 +141,11 @@ type tunnelReq struct {
 	AutoStart bool `json:"auto_start"`
 
 	ExpireAt *string `json:"expire_at"`
+
+	// TemplateID records which scenario template seeded this tunnel.
+	// Optional; the field is read on create and ignored on update so
+	// editing an existing tunnel never clears its provenance.
+	TemplateID string `json:"template_id"`
 }
 
 // validate cross-checks tunnel fields against the proxy / visitor
@@ -263,6 +268,16 @@ func (r *tunnelReq) applyToTunnel(t *model.Tunnel, keep *model.Tunnel) {
 		t.ExpireAt = nil
 	} else if ts, err := time.Parse(time.RFC3339, v); err == nil {
 		t.ExpireAt = &ts
+	}
+
+	// template_id is sticky on create and preserved on update: we never
+	// blank it from the wire because the field is metadata, not user
+	// content. Updates therefore inherit the existing value when keep
+	// is non-nil and the request leaves it empty.
+	if id := strings.TrimSpace(r.TemplateID); id != "" {
+		t.TemplateID = id
+	} else if keep != nil {
+		t.TemplateID = keep.TemplateID
 	}
 }
 

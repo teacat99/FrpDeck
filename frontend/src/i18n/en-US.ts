@@ -310,6 +310,89 @@ export default {
       auto_start: 'Auto start'
     }
   },
+  template: {
+    audience: 'Best for',
+    wizard: {
+      action: 'Templates',
+      title: 'Create from a scenario template',
+      subtitle: 'Pick a common scenario and FrpDeck pre-fills the type / ports / role; you can still tweak details before save.',
+      loading: 'Loading templates…',
+      empty: 'No templates available'
+    },
+    'web-http': {
+      name: 'Expose an HTTP website',
+      desc: 'http + custom domain or subdomain. Good for personal blogs and dashboards over plain HTTP.',
+      audience: 'You run an internal HTTP service and want to share it with friends/teammates.'
+    },
+    'web-http.prereq.vhost': 'frps.toml has vhostHTTPPort configured (default 80).',
+    'web-http.prereq.dns': 'Target domain DNS points to the frps public IP.',
+    'web-https': {
+      name: 'Expose an HTTPS website',
+      desc: 'https + custom domain. frps does SNI routing; the internal service terminates TLS itself.',
+      audience: 'Your internal service already has TLS; expose it as https://your-domain directly.'
+    },
+    'web-https.prereq.vhost': 'frps.toml has vhostHTTPSPort configured (default 443).',
+    'web-https.prereq.cert': 'Internal service has a TLS cert ready (or use wildcard cert + frps https2http plugin).',
+    'web-https.prereq.dns': 'Target domain DNS points to the frps public IP.',
+    rdp: {
+      name: 'RDP remote desktop',
+      desc: 'tcp + remote_port. Tunnel Windows Remote Desktop through frps.',
+      audience: 'Connect to your home/office Windows desktop while travelling.'
+    },
+    'rdp.prereq.allowports': 'frps allowPorts includes 13389 (or it is empty / unrestricted).',
+    'rdp.prereq.firewall': 'Windows firewall allows RDP (default port 3389).',
+    ssh: {
+      name: 'SSH bastion',
+      desc: 'tcp + remote_port. Reach your internal Linux box with `ssh -p 22022 user@frps_addr`.',
+      audience: 'Need remote SSH into your home/office Linux machine.'
+    },
+    'ssh.prereq.allowports': 'frps allowPorts includes 22022.',
+    'ssh.prereq.sshd': 'Local sshd is running (default port 22).',
+    'db-share': {
+      name: 'Share MySQL/Redis with a teammate',
+      desc: 'tcp + temporary tunnel (auto-stops after 4h by default). Burn after use; never leave a DB exposed long-term.',
+      audience: 'Briefly let a teammate or client connect to your DB to debug.'
+    },
+    'db-share.prereq.allowports': 'frps allowPorts includes 13306.',
+    'db-share.prereq.tempnote': 'Auto-expires in 4 hours; you can adjust or clear the expiry before saving.',
+    'nas-p2p': {
+      name: 'P2P access to home NAS',
+      desc: 'xtcp visitor. frps coordinates the handshake; real traffic runs P2P directly to bypass relay bandwidth.',
+      audience: 'Your home NAS is large and you do not want to relay traffic through frps.'
+    },
+    'nas-p2p.prereq.peer': 'The NAS side runs the matching xtcp server (same sk).',
+    'nas-p2p.prereq.stun': 'frps.toml has natHoleStunServer configured.',
+    'nas-p2p.prereq.shared-sk': 'Visitor and server must share the exact same sk.',
+    socks5: {
+      name: 'Private SOCKS5 proxy',
+      desc: 'plugin: socks5. Expose a SOCKS5 endpoint via frps to drive system/browser traffic out through your home/office network.',
+      audience: 'Want to use your home network egress (IP / region) from elsewhere.'
+    },
+    'socks5.prereq.allowports': 'frps allowPorts includes 11080.',
+    'socks5.prereq.creds': 'Set plugin_user / plugin_passwd in plugin_config for auth.',
+    'http-proxy': {
+      name: 'HTTP forward proxy',
+      desc: 'plugin: http_proxy. Lighter-weight HTTP proxy you can drop into a browser/curl http_proxy env var.',
+      audience: 'You want an HTTP-only proxy egress; lighter than SOCKS5.'
+    },
+    'http-proxy.prereq.allowports': 'frps allowPorts includes 18888.',
+    'http-proxy.prereq.creds': 'Set plugin_user / plugin_passwd in plugin_config for auth.',
+    'static-file': {
+      name: 'Static file sharing',
+      desc: 'plugin: static_file. Expose a local directory over HTTP for download.',
+      audience: 'One-off way to share large files without a cloud drive.'
+    },
+    'static-file.prereq.vhost': 'frps.toml has vhostHTTPPort configured and domain is resolved.',
+    'static-file.prereq.path': 'plugin_local_path in plugin_config points to a real directory.',
+    'frpdeck-self': {
+      name: 'Remote-manage FrpDeck itself',
+      desc: 'stcp (self-referencing). Expose your FrpDeck admin UI (127.0.0.1:8080) safely via frps.',
+      audience: 'You want to log into your home FrpDeck admin while away.'
+    },
+    'frpdeck-self.prereq.shared-sk': 'The visitor side must use the same sk.',
+    'frpdeck-self.prereq.password-mode': 'Strongly recommend FrpDeck auth=password (never `none`).',
+    'frpdeck-self.prereq.visitor-side': 'Another machine must run a matching stcp visitor tunnel.'
+  },
   history: {
     title: 'Audit log',
     subtitle: 'Every write touches this trail',

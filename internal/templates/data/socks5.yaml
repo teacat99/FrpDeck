@@ -1,0 +1,16 @@
+id: socks5
+icon: Shield
+name: socks5
+description: socks5
+audience: socks5
+prereq:
+  - socks5.prereq.allowports
+  - socks5.prereq.creds
+defaults:
+  type: tcp
+  local_ip: 127.0.0.1
+  local_port: 1080
+  remote_port: 11080
+  plugin: socks5
+  enabled: true
+  auto_start: true

@@ -5,7 +5,11 @@ import {
   Plus, RefreshCw, Pencil, Trash2, Play, Square,
   ChevronDown, ChevronRight, Clock, AlarmClockPlus, Infinity as InfinityIcon,
   Stethoscope, CircleCheck, CircleAlert, CircleX, MinusCircle, Loader2,
-  ServerCog, Copy, ExternalLink,
+  ServerCog, Copy, ExternalLink, LayoutTemplate,
+  // Template-icon set: each icon name in a YAML template must exist
+  // in this whitelist; render falls back to LayoutTemplate otherwise.
+  Globe, Lock, Monitor, TerminalSquare, Database, Network, Shield,
+  ArrowRightLeft, Folder,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,9 +34,10 @@ import { Message } from '@/lib/toast'
 import {
   listTunnels, createTunnel, updateTunnel, deleteTunnel,
   startTunnel, stopTunnel, renewTunnel, diagnoseTunnel,
-  frpsAdvice,
+  frpsAdvice, listTunnelTemplates,
   type DiagReport, type DiagStatus,
   type FrpsAdvice, type AdviceItem, type AdviceSeverity,
+  type TunnelTemplate,
 } from '@/api/tunnels'
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
@@ -171,6 +176,7 @@ async function reload() {
 
 function openCreate() {
   editing.value = null
+  appliedTemplateId.value = ''
   Object.assign(form, emptyForm())
   if (endpoints.value.length === 1) {
     form.endpoint_id = endpoints.value[0].id
@@ -306,7 +312,11 @@ async function submit() {
       saved = await updateTunnel(editing.value.id, payload)
       Message.success(t('common.updated'))
     } else {
+      if (appliedTemplateId.value) {
+        payload.template_id = appliedTemplateId.value
+      }
       saved = await createTunnel(payload)
+      appliedTemplateId.value = ''
       Message.success(t('common.created'))
     }
     dialogOpen.value = false
@@ -441,6 +451,93 @@ const ADVICE_SEVERITY_VARIANT: Record<AdviceSeverity, 'default' | 'destructive' 
 // resilient to a future backend that omits the array on empty.
 const adviceItems = computed<AdviceItem[]>(() => adviceData.value?.items ?? [])
 
+// ----- Template wizard (P5-C) -----------------------------------------
+// plan.md §7.2: 10 scenario templates. Backend returns the YAML-driven
+// list; this view caches them lazily on first wizard open to avoid an
+// extra round-trip on initial page load.
+const templateWizardOpen = ref(false)
+const templates = ref<TunnelTemplate[]>([])
+const templatesLoaded = ref(false)
+const templatesLoading = ref(false)
+
+// TEMPLATE_ICONS whitelists the lucide icons we ship. Untrusted YAML
+// could otherwise let us render arbitrary symbols; even though the
+// YAML is bundled we keep the indirection so a typo falls back to
+// the generic LayoutTemplate icon instead of a runtime crash.
+const TEMPLATE_ICONS: Record<string, unknown> = {
+  Globe, Lock, Monitor, TerminalSquare, Database, Network, Shield,
+  ArrowRightLeft, Folder, ServerCog, LayoutTemplate,
+}
+
+function templateIcon(name?: string) {
+  if (!name) return LayoutTemplate
+  return (TEMPLATE_ICONS[name] as typeof LayoutTemplate) ?? LayoutTemplate
+}
+
+async function openTemplateWizard() {
+  templateWizardOpen.value = true
+  if (templatesLoaded.value) return
+  templatesLoading.value = true
+  try {
+    templates.value = await listTunnelTemplates()
+    templatesLoaded.value = true
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
+  } finally {
+    templatesLoading.value = false
+  }
+}
+
+// applyTemplate seeds the create-tunnel form from the chosen
+// template's defaults map and opens the existing edit dialog. We
+// reuse openCreate's "single endpoint → auto-select" convenience so
+// the wizard collapses to a one-click flow when there is exactly
+// one frps.
+//
+// The `expire_in_seconds` knob (used by the temporary-DB-share
+// template) is converted to an absolute datetime-local string here,
+// because the form input only understands the local-tz form.
+function applyTemplate(tpl: TunnelTemplate) {
+  templateWizardOpen.value = false
+  editing.value = null
+  const fresh = emptyForm()
+  // Copy whitelisted keys; ignore unknown ones so future template
+  // additions never break older clients.
+  const knownKeys = Object.keys(fresh) as Array<keyof FormState>
+  const d = tpl.defaults || {}
+  for (const k of knownKeys) {
+    if (k in d) {
+      // String/number coercion is intentional: <input type=number>
+      // bound to a string is fine, but switching to number breaks
+      // the empty-state contract used elsewhere in this view.
+      ;(fresh as any)[k] = d[k as string]
+    }
+  }
+  // `template_id` is not a FormState field but the create payload
+  // accepts it; we merge it back in the submit() code path.
+  fresh.name = fresh.name || tpl.id
+  Object.assign(form, fresh)
+  if (endpoints.value.length === 1) {
+    form.endpoint_id = endpoints.value[0].id
+  }
+  // Translate expire_in_seconds → expire_local. Storing seconds
+  // (rather than an absolute timestamp) in the YAML keeps templates
+  // deterministic across builds.
+  const exp = (d as any).expire_in_seconds
+  if (typeof exp === 'number' && exp > 0) {
+    const at = new Date(Date.now() + exp * 1000)
+    form.expire_local = toLocalInput(at.toISOString()) || ''
+  }
+  appliedTemplateId.value = tpl.id
+  showAdvanced.value = false
+  dialogOpen.value = true
+}
+
+// appliedTemplateId is sent on the create payload so the backend
+// records which template seeded the tunnel; useful for analytics
+// later ("how many users actually use the templates we ship?").
+const appliedTemplateId = ref<string>('')
+
 // renew issues a one-shot extension to the tunnel's expiry. The
 // backend reactivates expired rows in-place so the operator can
 // rescue a stale tunnel without re-creating it. extendSeconds=0 is
@@ -525,6 +622,15 @@ function liveStateLabel(tn: Tunnel): string | null {
         <Button variant="outline" :disabled="loading" @click="reload">
           <RefreshCw class="size-4" :class="{ 'animate-spin': loading }" />
           <span>{{ t('common.refresh') }}</span>
+        </Button>
+        <Button
+          v-if="auth.isAdmin"
+          variant="outline"
+          :disabled="endpoints.length === 0"
+          @click="openTemplateWizard"
+        >
+          <LayoutTemplate class="size-4" />
+          <span>{{ t('template.wizard.action') }}</span>
         </Button>
         <Button v-if="auth.isAdmin" :disabled="endpoints.length === 0" @click="openCreate">
           <Plus class="size-4" />
@@ -944,6 +1050,54 @@ function liveStateLabel(tn: Tunnel): string | null {
             <RefreshCw class="size-4" :class="{ 'animate-spin': diagRunning }" />
             <span>{{ t('tunnel.diag.rerun') }}</span>
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Template wizard (P5-C) -->
+    <Dialog v-model:open="templateWizardOpen">
+      <DialogContent class="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{{ t('template.wizard.title') }}</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-3 max-h-[65vh] overflow-y-auto">
+          <p class="text-sm text-muted-foreground">{{ t('template.wizard.subtitle') }}</p>
+
+          <div v-if="templatesLoading" class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="size-4 animate-spin" />
+            <span>{{ t('template.wizard.loading') }}</span>
+          </div>
+
+          <div v-if="templatesLoaded && !templates.length" class="text-sm text-muted-foreground">
+            {{ t('template.wizard.empty') }}
+          </div>
+
+          <div v-if="templates.length" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              v-for="tpl in templates"
+              :key="tpl.id"
+              class="text-left rounded-md border p-3 hover:border-primary hover:bg-accent/30 transition-colors flex flex-col gap-1.5"
+              type="button"
+              @click="applyTemplate(tpl)"
+            >
+              <div class="flex items-center gap-2">
+                <component :is="templateIcon(tpl.icon)" class="size-4 shrink-0" />
+                <span class="font-medium text-sm">{{ t('template.' + tpl.id + '.name') }}</span>
+              </div>
+              <div class="text-xs text-muted-foreground leading-relaxed">
+                {{ t('template.' + tpl.id + '.desc') }}
+              </div>
+              <div class="text-[10px] text-muted-foreground/80 italic">
+                {{ t('template.audience') }}: {{ t('template.' + tpl.id + '.audience') }}
+              </div>
+              <ul v-if="tpl.prereq_keys && tpl.prereq_keys.length" class="text-[11px] text-muted-foreground list-disc list-inside mt-1">
+                <li v-for="k in tpl.prereq_keys" :key="k">{{ t('template.' + k) }}</li>
+              </ul>
+            </button>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="templateWizardOpen = false">{{ t('common.cancel') }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,0 +1,22 @@
+id: static-file
+icon: Folder
+name: static-file
+description: static-file
+audience: static-file
+prereq:
+  - static-file.prereq.vhost
+  - static-file.prereq.path
+defaults:
+  type: http
+  local_ip: 127.0.0.1
+  local_port: 0
+  custom_domains: ""
+  plugin: static_file
+  # plugin_config holds the static_file specific options. Backend
+  # already accepts arbitrary text in this column; the frontend will
+  # surface a focused editor for plugin-specific knobs in P5-C++.
+  plugin_config: |
+    plugin_local_path = "/var/www"
+    plugin_strip_prefix = "static"
+  enabled: true
+  auto_start: true

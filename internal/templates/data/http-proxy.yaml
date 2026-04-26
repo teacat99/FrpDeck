@@ -1,0 +1,16 @@
+id: http-proxy
+icon: ArrowRightLeft
+name: http-proxy
+description: http-proxy
+audience: http-proxy
+prereq:
+  - http-proxy.prereq.allowports
+  - http-proxy.prereq.creds
+defaults:
+  type: tcp
+  local_ip: 127.0.0.1
+  local_port: 8888
+  remote_port: 18888
+  plugin: http_proxy
+  enabled: true
+  auto_start: true

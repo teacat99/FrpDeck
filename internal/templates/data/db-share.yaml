@@ -1,0 +1,22 @@
+id: db-share
+icon: Database
+name: db-share
+description: db-share
+audience: db-share
+# Encourages the temporary-tunnel pattern: the lifecycle manager will
+# auto-stop after the embedded expire_in (4h by default). Frontend can
+# override before submit.
+prereq:
+  - db-share.prereq.allowports
+  - db-share.prereq.tempnote
+defaults:
+  type: tcp
+  local_ip: 127.0.0.1
+  local_port: 3306
+  remote_port: 13306
+  enabled: true
+  auto_start: true
+  # 4 hours expressed in seconds; the wizard reads this and converts
+  # to an absolute expire_at before POSTing. We store seconds (not a
+  # date) because the YAML must stay deterministic across builds.
+  expire_in_seconds: 14400

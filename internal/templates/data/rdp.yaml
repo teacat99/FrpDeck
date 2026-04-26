@@ -1,0 +1,15 @@
+id: rdp
+icon: Monitor
+name: rdp
+description: rdp
+audience: rdp
+prereq:
+  - rdp.prereq.allowports
+  - rdp.prereq.firewall
+defaults:
+  type: tcp
+  local_ip: 127.0.0.1
+  local_port: 3389
+  remote_port: 13389
+  enabled: true
+  auto_start: true

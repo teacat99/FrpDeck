@@ -1,0 +1,19 @@
+id: frpdeck-self
+icon: ServerCog
+name: frpdeck-self
+description: frpdeck-self
+audience: frpdeck-self
+# stcp self-hosting: expose the FrpDeck admin UI through frps so the
+# operator can reach it remotely without opening any home-LAN port.
+prereq:
+  - frpdeck-self.prereq.shared-sk
+  - frpdeck-self.prereq.password-mode
+  - frpdeck-self.prereq.visitor-side
+defaults:
+  type: stcp
+  role: server
+  local_ip: 127.0.0.1
+  local_port: 8080
+  sk: ""
+  enabled: true
+  auto_start: true

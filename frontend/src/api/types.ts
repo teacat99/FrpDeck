@@ -118,6 +118,10 @@ export interface TunnelWrite {
   auto_start?: boolean
   // ISO 8601 (RFC3339) string. Pass null to clear an existing expiry.
   expire_at?: string | null
+  // Stable template id from internal/templates (e.g. "ssh", "rdp").
+  // Surfaced on create only; the backend stores it in tunnels.template_id
+  // so we can later answer "which scenarios actually get used".
+  template_id?: string
 }
 
 export type Role = 'admin' | 'user'

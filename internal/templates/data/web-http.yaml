@@ -1,0 +1,38 @@
+# Template metadata for the FrpDeck "scenario templates" feature.
+# This YAML is embedded into the Go binary; the file name (sans .yaml)
+# becomes the template id and persists in `tunnels.template_id` so we
+# can later answer "which user-created tunnel came from which template".
+#
+# Field semantics
+#   id          Stable string id (template_id column). Lowercase + hyphen.
+#   icon        Lucide icon name; renders before the title in the wizard.
+#   name        i18n key suffix; rendered as `template.<id>.name`.
+#   description i18n key suffix; rendered as `template.<id>.desc`.
+#   audience    i18n key suffix; explains who this template is for.
+#   prereq      List of i18n key suffixes; bullet points describing what
+#               the user must already have set up on the frps side.
+#   defaults    Map of fields applied to the new tunnel when the user
+#               picks this template. Keys mirror `internal/api/dto.go`
+#               `tunnelReq` JSON keys verbatim, so the frontend can
+#               apply them with a simple Object.assign.
+#
+# Field-fill philosophy
+#   We pre-fill _safe defaults_ only: ports, types, role. Everything
+#   that varies per-deployment (custom_domains, remote_port, sk) is
+#   left blank so the user must look at it consciously. The wizard
+#   header lists the prereq bullets so they see what frps needs.
+id: web-http
+icon: Globe
+name: web-http
+description: web-http
+audience: web-http
+prereq:
+  - web-http.prereq.vhost
+  - web-http.prereq.dns
+defaults:
+  type: http
+  local_ip: 127.0.0.1
+  local_port: 8080
+  custom_domains: ""
+  enabled: true
+  auto_start: true

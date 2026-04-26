@@ -1,0 +1,16 @@
+id: web-https
+icon: Lock
+name: web-https
+description: web-https
+audience: web-https
+prereq:
+  - web-https.prereq.vhost
+  - web-https.prereq.cert
+  - web-https.prereq.dns
+defaults:
+  type: https
+  local_ip: 127.0.0.1
+  local_port: 8443
+  custom_domains: ""
+  enabled: true
+  auto_start: true

@@ -1,0 +1,20 @@
+id: nas-p2p
+icon: Network
+name: nas-p2p
+description: nas-p2p
+audience: nas-p2p
+# xtcp visitor side: needs the server-side xtcp peer to also be live,
+# plus a STUN server on the frps side for NAT hole punching.
+prereq:
+  - nas-p2p.prereq.peer
+  - nas-p2p.prereq.stun
+  - nas-p2p.prereq.shared-sk
+defaults:
+  type: xtcp
+  role: visitor
+  server_name: ""
+  sk: ""
+  local_ip: 127.0.0.1
+  local_port: 5000
+  enabled: true
+  auto_start: true

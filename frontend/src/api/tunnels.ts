@@ -106,3 +106,26 @@ export async function frpsAdvice(id: number): Promise<FrpsAdvice> {
   const { data } = await client.get<FrpsAdvice>(`/tunnels/${id}/frps-advice`)
   return data
 }
+
+// TunnelTemplate is the frontend mirror of internal/templates.Template.
+// The defaults map is intentionally untyped (Record<string, unknown>)
+// because the backend can ship new keys without a frontend release —
+// the wizard only consumes the keys it knows about and silently
+// drops the rest.
+export interface TunnelTemplate {
+  id: string
+  icon?: string
+  name_key: string
+  description_key: string
+  audience_key: string
+  prereq_keys?: string[]
+  defaults: Record<string, unknown>
+}
+
+// listTunnelTemplates returns the 10 embedded scenario templates the
+// "create from template" wizard renders. Auth-required but not
+// admin-restricted; payload is a few KB.
+export async function listTunnelTemplates(): Promise<TunnelTemplate[]> {
+  const { data } = await client.get<{ templates: TunnelTemplate[] }>('/tunnels/templates')
+  return data.templates ?? []
+}
