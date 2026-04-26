@@ -89,6 +89,12 @@ func (c *wsConn) match(e frpcd.Event) bool {
 	case frpcd.EventTunnelState:
 		_, ok := c.topics["tunnels"]
 		return ok
+	case frpcd.EventTunnelExpiring:
+		// Reuses the "tunnels" topic so the frontend that already
+		// subscribes to live status updates also gets the early
+		// expiry warnings without an extra subscribe round-trip.
+		_, ok := c.topics["tunnels"]
+		return ok
 	case frpcd.EventLog:
 		if _, ok := c.topics["logs:all"]; ok {
 			return true

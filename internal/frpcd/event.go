@@ -23,6 +23,14 @@ const (
 	// EndpointID/TunnelID may be 0 because frp's logger is package-global
 	// and does not tag every line with the originating Endpoint.
 	EventLog EventType = "log"
+
+	// EventTunnelExpiring is published by the lifecycle manager when a
+	// temporary tunnel is approaching its ExpireAt boundary. The "lead"
+	// time is configurable via the runtime setting
+	// `tunnel_expiring_notify_minutes`. The State field carries the
+	// remaining seconds as a decimal string so the frontend can render
+	// "4m 30s left" without re-fetching the tunnel row.
+	EventTunnelExpiring EventType = "tunnel_expiring"
 )
 
 // Event is a single asynchronous update emitted by the driver. The struct

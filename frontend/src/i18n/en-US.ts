@@ -173,8 +173,21 @@ export default {
     confirm_delete: 'Delete tunnel {name}?',
     started: 'Tunnel started',
     stopped: 'Tunnel stopped',
+    renewed: 'Renewed',
+    renewed_permanent: 'Now permanent',
     advanced: 'Advanced',
     advanced_hide: 'Hide',
+    renew: {
+      label: 'Renew',
+      plus_1h: '+1 hour',
+      plus_1d: '+1 day',
+      plus_7d: '+7 days',
+      permanent: 'Make permanent'
+    },
+    notify: {
+      expiring_title: 'Tunnel {name} expiring soon',
+      expiring_body: 'Auto-stop in ~{minutes} minutes — renew from the Tunnels page.'
+    },
     section: {
       basic: 'Basic',
       proxy: 'Proxy (public ingress)',
@@ -307,7 +320,9 @@ export default {
       sectionDefence: 'Extra defence',
       sectionNotify: 'Notifications (ntfy)',
       sectionSystem: 'System info (read-only)',
-      notConfigured: 'not configured'
+      notConfigured: 'not configured',
+      tunnelExpiringNotifyMinutes: 'Expiring notice (mins)',
+      tunnelExpiringNotifyMinutesHelp: 'Toast + browser notification N mins before a tunnel expires; 0 disables, max 120'
     },
     notify: {
       test: 'Send test',

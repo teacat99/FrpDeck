@@ -265,3 +265,32 @@ func (r *tunnelReq) applyToTunnel(t *model.Tunnel, keep *model.Tunnel) {
 		t.ExpireAt = &ts
 	}
 }
+
+// tunnelRenewReq is the payload for `POST /api/tunnels/:id/renew`.
+//
+// `extend_seconds` is a *int so callers can intentionally pass 0 to
+// signal "make permanent" — distinct from omitting the field, which
+// returns a 400 (we want explicit intent). Negative values are rejected
+// so a typo cannot accidentally shorten an expiry; the canonical way to
+// shorten is the regular PUT /tunnels/:id with a smaller expire_at.
+type tunnelRenewReq struct {
+	ExtendSeconds *int `json:"extend_seconds"`
+}
+
+// validate enforces the explicit-intent contract: callers must always
+// pass `extend_seconds`, and only non-negative integers are allowed.
+func (r *tunnelRenewReq) validate() error {
+	if r.ExtendSeconds == nil {
+		return errors.New("extend_seconds required")
+	}
+	if *r.ExtendSeconds < 0 {
+		return errors.New("extend_seconds must be >= 0")
+	}
+	// 30 days upper bound matches the existing max_duration_hours
+	// guardrail (720h ≈ 30d). Larger values are almost certainly a
+	// client bug; the user can always renew again.
+	if *r.ExtendSeconds > 30*24*3600 {
+		return errors.New("extend_seconds too large")
+	}
+	return nil
+}

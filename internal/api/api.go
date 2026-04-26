@@ -8,6 +8,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -111,6 +112,7 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.DELETE("/tunnels/:id", s.handleDeleteTunnel)
 	g.POST("/tunnels/:id/start", s.handleStartTunnel)
 	g.POST("/tunnels/:id/stop", s.handleStopTunnel)
+	g.POST("/tunnels/:id/renew", s.handleRenewTunnel)
 
 	// User management endpoints (admin-only is enforced inside the
 	// handler via ensureAdmin so the auth layer can keep a single gate).
@@ -510,6 +512,49 @@ func (s *Server) handleStopTunnel(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.JSON(http.StatusOK, t)
+}
+
+// handleRenewTunnel extends a temporary tunnel's expiry by
+// `extend_seconds`, or makes it permanent when `extend_seconds == 0`.
+// Reactivates `expired` rows in either case so operators get a one-click
+// recovery path from the Tunnels page. Permanent tunnels (ExpireAt nil)
+// are rejected with 400 to prevent accidental conversions — the regular
+// PUT /tunnels/:id is the right path for that.
+func (s *Server) handleRenewTunnel(c *gin.Context) {
+	if !s.ensureAdmin(c) {
+		return
+	}
+	id, err := parseID(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var req tunnelRenewReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := req.validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	delta := time.Duration(*req.ExtendSeconds) * time.Second
+	t, err := s.lifecycle.Renew(id, delta)
+	if err != nil {
+		switch {
+		case errors.Is(err, lifecycle.ErrTunnelNoExpire):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	_, actor, _ := auth.Principal(c)
+	_ = s.store.WriteAudit(&model.AuditLog{
+		Action: "renew_tunnel", TunnelID: t.ID, Actor: actor, ActorIP: s.clientIP(c),
+		Detail: fmt.Sprintf(`{"extend_seconds":%d}`, *req.ExtendSeconds),
+	})
 	c.JSON(http.StatusOK, t)
 }
 

@@ -1,2 +1,0 @@
-# Placeholder so `go:embed all:dist` compiles before `npm run build` populates this directory.
-# Real assets live alongside this file after a frontend build (and are gitignored).

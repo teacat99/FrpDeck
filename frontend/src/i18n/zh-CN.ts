@@ -173,8 +173,21 @@ export default {
     confirm_delete: '确定要删除隧道 {name} 吗？',
     started: '隧道已启动',
     stopped: '隧道已停止',
+    renewed: '已续期',
+    renewed_permanent: '已设为永久',
     advanced: '高级',
     advanced_hide: '收起',
+    renew: {
+      label: '续期',
+      plus_1h: '+1 小时',
+      plus_1d: '+1 天',
+      plus_7d: '+7 天',
+      permanent: '设为永久'
+    },
+    notify: {
+      expiring_title: '隧道 {name} 即将到期',
+      expiring_body: '约 {minutes} 分钟后将自动停止，可在「隧道」页快速续期。'
+    },
     section: {
       basic: '基础',
       proxy: 'Proxy（公网入口）',
@@ -307,7 +320,9 @@ export default {
       sectionDefence: '附加防御',
       sectionNotify: '通知（ntfy）',
       sectionSystem: '系统信息（不可修改）',
-      notConfigured: '未配置'
+      notConfigured: '未配置',
+      tunnelExpiringNotifyMinutes: '到期提前通知',
+      tunnelExpiringNotifyMinutesHelp: '隧道到期前提前 N 分钟弹窗 + 浏览器通知，0 关闭，最多 120'
     },
     notify: {
       test: '发送测试',

@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Plus, RefreshCw, Pencil, Trash2, Play, Square,
-  ChevronDown, ChevronRight, Clock,
+  ChevronDown, ChevronRight, Clock, AlarmClockPlus, Infinity as InfinityIcon,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,11 +19,15 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import EmptyState from '@/components/EmptyState.vue'
 import { Message } from '@/lib/toast'
 import {
   listTunnels, createTunnel, updateTunnel, deleteTunnel,
-  startTunnel, stopTunnel,
+  startTunnel, stopTunnel, renewTunnel,
 } from '@/api/tunnels'
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
@@ -332,7 +336,23 @@ async function start(tn: Tunnel) {
 async function stop(tn: Tunnel) {
   try {
     await stopTunnel(tn.id)
+    realtime.dismissExpiring(tn.id)
     Message.success(t('tunnel.stopped'))
+    await reload()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
+  }
+}
+
+// renew issues a one-shot extension to the tunnel's expiry. The
+// backend reactivates expired rows in-place so the operator can
+// rescue a stale tunnel without re-creating it. extendSeconds=0 is
+// the explicit "make permanent" path.
+async function renew(tn: Tunnel, extendSeconds: number) {
+  try {
+    await renewTunnel(tn.id, extendSeconds)
+    realtime.dismissExpiring(tn.id)
+    Message.success(extendSeconds === 0 ? t('tunnel.renewed_permanent') : t('tunnel.renewed'))
     await reload()
   } catch (e: any) {
     Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
@@ -345,6 +365,28 @@ function remainingForRow(tn: Tunnel): string | null {
   void nowTick.value
   return formatRemaining(tn.expire_at ?? null)
 }
+
+// rowIsExpiringSoon highlights a row that has either received a live
+// `tunnel_expiring` warning OR whose persisted expire_at is within the
+// next 60s of the latest tick (covers the case where the user lands on
+// the page after the warning fired).
+function rowIsExpiringSoon(tn: Tunnel): boolean {
+  void nowTick.value
+  if (tn.status !== 'active') return false
+  if (realtime.tunnelExpiringInfo(tn.id)) return true
+  if (!tn.expire_at) return false
+  const ms = Date.parse(tn.expire_at)
+  if (Number.isNaN(ms)) return false
+  return ms - Date.now() <= 5 * 60 * 1000 && ms > Date.now()
+}
+
+// Quick-action presets surfaced inside the renew dropdown. Mapped to
+// seconds so the API contract stays a single integer field.
+const RENEW_PRESETS: { labelKey: string, seconds: number }[] = [
+  { labelKey: 'tunnel.renew.plus_1h', seconds: 3600 },
+  { labelKey: 'tunnel.renew.plus_1d', seconds: 86400 },
+  { labelKey: 'tunnel.renew.plus_7d', seconds: 7 * 86400 },
+]
 
 let unsubTunnels: (() => void) | null = null
 
@@ -419,14 +461,42 @@ function liveStateLabel(tn: Tunnel): string | null {
             {{ tn.local_ip }}:{{ tn.local_port }} → {{ tn.remote_port || tn.subdomain || tn.custom_domains || '—' }}
           </TableCell>
           <TableCell>
-            <span v-if="!tn.expire_at" class="text-xs text-muted-foreground">—</span>
-            <Badge v-else-if="remainingForRow(tn) === 'expired'" variant="outline">
-              {{ t('tunnel.expire.expired') }}
-            </Badge>
-            <Badge v-else variant="secondary" class="font-mono">
-              <Clock class="size-3 mr-1" />
-              {{ t('tunnel.expire.remaining', { value: remainingForRow(tn) }) }}
-            </Badge>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span v-if="!tn.expire_at" class="text-xs text-muted-foreground">—</span>
+              <Badge v-else-if="remainingForRow(tn) === 'expired'" variant="outline">
+                {{ t('tunnel.expire.expired') }}
+              </Badge>
+              <Badge
+                v-else
+                :variant="rowIsExpiringSoon(tn) ? 'destructive' : 'secondary'"
+                class="font-mono"
+              >
+                <Clock class="size-3 mr-1" />
+                {{ t('tunnel.expire.remaining', { value: remainingForRow(tn) }) }}
+              </Badge>
+              <DropdownMenu v-if="auth.isAdmin && tn.expire_at">
+                <DropdownMenuTrigger as-child>
+                  <Button size="icon" variant="ghost" class="size-7">
+                    <AlarmClockPlus class="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" class="min-w-[8rem]">
+                  <DropdownMenuItem
+                    v-for="p in RENEW_PRESETS"
+                    :key="p.seconds"
+                    @select="renew(tn, p.seconds)"
+                  >
+                    <Clock class="size-3.5" />
+                    <span>{{ t(p.labelKey) }}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem @select="renew(tn, 0)">
+                    <InfinityIcon class="size-3.5" />
+                    <span>{{ t('tunnel.renew.permanent') }}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </TableCell>
           <TableCell>
             <div class="flex items-center gap-2">

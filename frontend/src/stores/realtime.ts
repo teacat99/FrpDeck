@@ -19,6 +19,8 @@ import type {
   RealtimeEvent,
   TunnelRuntimeState
 } from '@/api/types'
+import i18n from '@/i18n'
+import { toast } from '@/lib/toast'
 import { useAuthStore } from './auth'
 
 interface EndpointLive {
@@ -30,6 +32,23 @@ interface EndpointLive {
 interface TunnelLive {
   state: TunnelRuntimeState
   err: string
+  at: string
+}
+
+// TunnelExpiring captures the most recent `tunnel_expiring` warning
+// the backend lifecycle manager emitted for a given tunnel. The TTL of
+// the row is "until ExpireAt"; we keep stale entries around because
+// the lifecycle manager may reuse them on reconcile, but the UI hides
+// them once the remaining countdown reaches 0.
+interface TunnelExpiring {
+  // Remaining seconds at the moment the event was received. The view
+  // re-derives the live countdown from `expiresAtMs`, so this is just
+  // a snapshot for debugging / replay.
+  remainingSec: number
+  // Absolute deadline in epoch ms, computed from at + remainingSec so
+  // the UI does not have to re-fetch the tunnel row.
+  expiresAtMs: number
+  name: string
   at: string
 }
 
@@ -45,6 +64,14 @@ export const useRealtimeStore = defineStore('realtime', () => {
   // re-renders on update without us touching the surrounding array.
   const endpoints = reactive<Record<number, EndpointLive>>({})
   const tunnels = reactive<Record<number, TunnelLive>>({})
+  // Indexed by tunnel id so a row can show "expiring soon" chrome
+  // without a separate API call. Renew + Stop clear the entry.
+  const expiring = reactive<Record<number, TunnelExpiring>>({})
+
+  // Dedup: a single ExpireAt instant should only trigger one toast +
+  // one browser notification. Keyed by tunnel id, value is the epoch
+  // ms of the warning we last surfaced.
+  const lastNotified: Record<number, number> = {}
 
   // Reference counts let multiple components subscribe to the same
   // topic without us double-sending the `subscribe` op.
@@ -84,10 +111,57 @@ export const useRealtimeStore = defineStore('realtime', () => {
         err: ev.err ?? '',
         at
       }
+    } else if (ev.type === 'tunnel_expiring' && ev.tunnel_id) {
+      onTunnelExpiring(ev.tunnel_id, ev.state ?? '0', ev.msg ?? '', at)
     }
     // EventLog is intentionally not stashed in the store; the future
     // log panel will subscribe to its own topic and stream lines into
     // a bounded ring buffer.
+  }
+
+  // onTunnelExpiring stores the remaining-time snapshot, fires a toast
+  // (always) and a browser notification (when the user has granted
+  // Notification permission). Dedup by (tunnel id, expiresAtMs) so a
+  // process-restart safety publish + the per-tunnel timer cannot
+  // double-notify the operator.
+  function onTunnelExpiring(tunnelID: number, remainingRaw: string, name: string, at: string): void {
+    const remainingSec = Math.max(0, parseInt(remainingRaw, 10) || 0)
+    if (remainingSec <= 0) return
+    const baseMs = Date.parse(at) || Date.now()
+    const expiresAtMs = baseMs + remainingSec * 1000
+
+    expiring[tunnelID] = { remainingSec, expiresAtMs, name, at }
+
+    // Coalesce repeats for the same scheduled deadline.
+    const seenAt = lastNotified[tunnelID]
+    if (seenAt && Math.abs(seenAt - expiresAtMs) < 1000) return
+    lastNotified[tunnelID] = expiresAtMs
+
+    const t = i18n.global.t
+    const minutes = Math.max(1, Math.round(remainingSec / 60))
+    const title = t('tunnel.notify.expiring_title', { name: name || `#${tunnelID}` })
+    const body = t('tunnel.notify.expiring_body', { minutes })
+    toast.warning({ title, description: body, duration: 8000 })
+
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        if (Notification.permission === 'granted') {
+          new Notification(title, { body, tag: `frpdeck-expiring-${tunnelID}` })
+        }
+      } catch {
+        // Some browsers throw on construction in certain contexts
+        // (e.g. private mode). Toast already covered the user, so
+        // failing silently is OK.
+      }
+    }
+  }
+
+  // dismissExpiring clears the stored warning for a tunnel. The renew
+  // / stop handlers call this so the UI badge disappears immediately,
+  // before the next `tunnel_state` event arrives.
+  function dismissExpiring(tunnelID: number): void {
+    if (expiring[tunnelID]) delete expiring[tunnelID]
+    delete lastNotified[tunnelID]
   }
 
   // ensureConnected is idempotent: calling it on every guard run is
@@ -152,6 +226,10 @@ export const useRealtimeStore = defineStore('realtime', () => {
     return tunnels[id]?.state ?? null
   }
 
+  function tunnelExpiringInfo(id: number): TunnelExpiring | null {
+    return expiring[id] ?? null
+  }
+
   const isConnected = computed(() => connection.value === 'connected')
 
   return {
@@ -160,12 +238,15 @@ export const useRealtimeStore = defineStore('realtime', () => {
     helloPayload,
     endpoints,
     tunnels,
+    expiring,
     ensureConnected,
     disconnect,
     subscribeTunnels,
     subscribeEndpoints,
     subscribeLogs,
     endpointState,
-    tunnelState
+    tunnelState,
+    tunnelExpiringInfo,
+    dismissExpiring
   }
 })

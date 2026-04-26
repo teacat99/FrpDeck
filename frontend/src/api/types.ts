@@ -170,7 +170,7 @@ export interface VersionInfo {
 // Realtime event envelope. The backend emits these on /api/ws after the
 // client subscribes to topics like "tunnels" / "endpoints" /
 // "logs:endpoint:<id>" / "logs:tunnel:<id>". Mirrors `frpcd.Event`.
-export type RealtimeEventType = 'endpoint_state' | 'tunnel_state' | 'log'
+export type RealtimeEventType = 'endpoint_state' | 'tunnel_state' | 'log' | 'tunnel_expiring'
 
 export interface RealtimeEvent {
   type: RealtimeEventType

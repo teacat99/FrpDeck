@@ -58,6 +58,14 @@ const (
 	KeyNtfyURL   Key = "ntfy_url"
 	KeyNtfyTopic Key = "ntfy_topic"
 	KeyNtfyToken Key = "ntfy_token"
+
+	// Tunnel lifecycle.
+	//
+	// KeyTunnelExpiringNotifyMinutes controls how far ahead of a temporary
+	// tunnel's ExpireAt the lifecycle manager publishes a `tunnel_expiring`
+	// event so the UI / ntfy can warn the operator before the proxy is
+	// auto-stopped. 0 disables the early warning entirely.
+	KeyTunnelExpiringNotifyMinutes Key = "tunnel_expiring_notify_minutes"
 )
 
 // AllKeys lists every key the API will accept on writes. The slice is
@@ -82,6 +90,8 @@ var AllKeys = []Key{
 	KeyNtfyURL,
 	KeyNtfyTopic,
 	KeyNtfyToken,
+
+	KeyTunnelExpiringNotifyMinutes,
 }
 
 // Settings is the live, mutable runtime configuration. Read paths take
@@ -114,6 +124,9 @@ type Settings struct {
 	ntfyTopic string
 	ntfyToken string
 
+	// Tunnel lifecycle.
+	tunnelExpiringNotifyMinutes int
+
 	// Hooks invoked AFTER a successful Set; one per key. Optional.
 	hooks map[Key][]func()
 }
@@ -138,6 +151,10 @@ func New(cfg *config.Config) *Settings {
 
 		loginFailSubnetBits: 0,
 		captchaThreshold:    3, // out of the box: show math after 3 failures
+
+		// 5 minutes feels right for the typical "show RDP to colleague"
+		// use case; long-lived hosting setups will bump this from the UI.
+		tunnelExpiringNotifyMinutes: 5,
 	}
 	return s
 }
@@ -297,6 +314,8 @@ func (s *Settings) applyLocked(key Key, raw string) error {
 		s.ntfyTopic = parsed.(string)
 	case KeyNtfyToken:
 		s.ntfyToken = parsed.(string)
+	case KeyTunnelExpiringNotifyMinutes:
+		s.tunnelExpiringNotifyMinutes = parsed.(int)
 	default:
 		return fmt.Errorf("unknown key %q", key)
 	}
@@ -361,6 +380,10 @@ func validateOnly(key Key, raw string) (any, error) {
 			return "", errors.New("ntfy_token too long")
 		}
 		return v, nil
+	case KeyTunnelExpiringNotifyMinutes:
+		// 0 disables; otherwise 1..120 minutes is a reasonable
+		// guardrail (above two hours and the warning blends into noise).
+		return parseRange(raw, 0, 120)
 	}
 	return nil, fmt.Errorf("unknown key %q", key)
 }
@@ -475,6 +498,15 @@ func (s *Settings) NtfyToken() string {
 	return s.ntfyToken
 }
 
+// TunnelExpiringNotifyMinutes returns the early-warning threshold (in
+// minutes) the lifecycle manager uses to publish `tunnel_expiring`
+// events. 0 means the operator disabled advance warnings entirely.
+func (s *Settings) TunnelExpiringNotifyMinutes() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tunnelExpiringNotifyMinutes
+}
+
 // Snapshot returns a JSON-friendly view of every hot field plus the
 // rendered "current" value. Used by GET /api/runtime-settings so the
 // UI can render a single coherent state.
@@ -503,6 +535,8 @@ func (s *Settings) Snapshot() map[string]any {
 		// ntfy_token is intentionally redacted from snapshots so it is
 		// never echoed back to the client; the UI only writes it.
 		string(KeyNtfyToken): maskToken(s.ntfyToken),
+
+		string(KeyTunnelExpiringNotifyMinutes): s.tunnelExpiringNotifyMinutes,
 	}
 }
 

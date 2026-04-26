@@ -65,6 +65,15 @@ onMounted(async () => {
   if (auth.token || !auth.required) {
     await auth.fetchMe()
   }
+  // Request notification permission once the operator lands on the
+  // authenticated shell — `tunnel_expiring` warnings rely on it. We
+  // do NOT ask while the user is still on the login page (auth.me is
+  // null there) so the prompt feels contextual.
+  if (auth.me && typeof window !== 'undefined' && 'Notification' in window) {
+    if (Notification.permission === 'default') {
+      try { await Notification.requestPermission() } catch { /* user denied / unsupported */ }
+    }
+  }
 })
 
 const currentKey = computed(() => String(route.name ?? 'home'))

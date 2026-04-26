@@ -69,6 +69,13 @@ type FrpDriver interface {
 	// driver wants to surface (status transitions, log lines). The cancel
 	// closure unregisters the subscriber and closes the channel.
 	Subscribe() (<-chan Event, func())
+
+	// PublishEvent injects an externally-sourced event onto the same
+	// bus that Subscribe() reads from. Used by the lifecycle manager to
+	// emit `tunnel_expiring` warnings on the same channel the WebSocket
+	// fan-out is already listening on, so the UI layer does not need a
+	// second subscription path.
+	PublishEvent(Event)
 }
 
 // NewDriver picks the driver implementation by name. Unknown names

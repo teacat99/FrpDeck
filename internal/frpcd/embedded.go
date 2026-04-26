@@ -66,6 +66,11 @@ func (e *Embedded) Name() string { return "embedded" }
 // driver until the returned cancel func is invoked.
 func (e *Embedded) Subscribe() (<-chan Event, func()) { return e.bus.Subscribe() }
 
+// PublishEvent forwards an externally-sourced event onto the driver's
+// bus so subscribers (WebSocket / lifecycle / tests) see it alongside
+// engine-emitted events.
+func (e *Embedded) PublishEvent(ev Event) { e.bus.Publish(ev) }
+
 // installLogTap rewires frp's logger so log lines fan out to the bus while
 // still echoing to stderr. Idempotent across NewEmbedded calls.
 func (e *Embedded) installLogTap() {

@@ -39,6 +39,7 @@ function emptyForm(): FormState {
   return {
     max_duration_hours: '',
     history_retention_days: '',
+    tunnel_expiring_notify_minutes: '',
     max_rules_per_ip: '',
     rate_limit_per_minute_per_ip: '',
     login_fail_max_per_ip: '',
@@ -153,6 +154,7 @@ interface Field {
 const ruleLimits: Field[] = [
   { key: 'max_duration_hours', type: 'number', label: 'settings.runtime.maxDurationHours', help: 'settings.runtime.maxDurationHoursHelp', unit: 'h' },
   { key: 'history_retention_days', type: 'number', label: 'settings.runtime.historyRetentionDays', help: 'settings.runtime.historyRetentionDaysHelp', unit: 'd' },
+  { key: 'tunnel_expiring_notify_minutes', type: 'number', label: 'settings.runtime.tunnelExpiringNotifyMinutes', help: 'settings.runtime.tunnelExpiringNotifyMinutesHelp', unit: 'min' },
   { key: 'max_rules_per_ip', type: 'number', label: 'settings.runtime.maxRulesPerIP', help: 'settings.runtime.maxRulesPerIPHelp' },
   { key: 'rate_limit_per_minute_per_ip', type: 'number', label: 'settings.runtime.rateLimit', help: 'settings.runtime.rateLimitHelp', unit: '/min' },
 ]

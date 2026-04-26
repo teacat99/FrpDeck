@@ -109,16 +109,23 @@ func bootstrap() (*Runtime, error) {
 	}
 	log.Printf("frpcd driver: %s (frp %s)", drv.Name(), frpcd.BundledFrpVersion)
 
-	lm := lifecycle.New(s, drv, 30*time.Second)
+	rt := runtime.New(cfg)
+	if err := rt.LoadFromKV(s.LookupSetting); err != nil {
+		log.Printf("[runtime] load persisted settings: %v (continuing with env defaults)", err)
+	}
+
+	// Construct lifecycle AFTER runtime so we can wire the dynamic
+	// expiring-notify threshold. Driver.PublishEvent is the same bus
+	// the WebSocket fan-out reads from, so `tunnel_expiring` events
+	// reach the browser through the existing channel.
+	lm := lifecycle.New(s, drv, 30*time.Second, &lifecycle.Options{
+		Publish:         drv.PublishEvent,
+		ExpiringMinutes: rt.TunnelExpiringNotifyMinutes,
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := lm.Start(ctx); err != nil {
 		cancel()
 		return nil, fmt.Errorf("lifecycle start: %w", err)
-	}
-
-	rt := runtime.New(cfg)
-	if err := rt.LoadFromKV(s.LookupSetting); err != nil {
-		log.Printf("[runtime] load persisted settings: %v (continuing with env defaults)", err)
 	}
 
 	notifier := notify.New(rt)

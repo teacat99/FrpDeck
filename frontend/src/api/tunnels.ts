@@ -37,3 +37,14 @@ export async function stopTunnel(id: number): Promise<Tunnel> {
   const { data } = await client.post<Tunnel>(`/tunnels/${id}/stop`)
   return data
 }
+
+// renewTunnel extends the tunnel's expiry by `extendSeconds`. Pass 0
+// to make the tunnel permanent (clears `expire_at`). The lifecycle
+// manager reactivates the row if it had auto-expired, so this is also
+// the API behind the "uh, give me another hour" recovery button.
+export async function renewTunnel(id: number, extendSeconds: number): Promise<Tunnel> {
+  const { data } = await client.post<Tunnel>(`/tunnels/${id}/renew`, {
+    extend_seconds: extendSeconds,
+  })
+  return data
+}

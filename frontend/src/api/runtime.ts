@@ -21,6 +21,10 @@ export interface RuntimeSettings {
   login_fail_subnet_bits: number
   captcha_threshold: number
 
+  // Lead time (in minutes) for the `tunnel_expiring` early-warning
+  // event. 0 disables the warning entirely; the backend caps it at 120.
+  tunnel_expiring_notify_minutes: number
+
   ntfy_url: string
   ntfy_topic: string
   // Token is redacted to a masked form for display; the real value is
