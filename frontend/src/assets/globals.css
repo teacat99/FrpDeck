@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+ * FrpDeck global stylesheet.
+ *
+ * Tailwind v4 uses CSS-native configuration via the @theme directive. All
+ * design tokens (colours, radii, shadows) are declared here and consumed
+ * by shadcn-vue primitives through their Tailwind classes.
+ *
+ * Dark mode: we toggle the `.dark` class on <html> (see stores/theme.ts).
+ * The `@custom-variant dark` line below wires that into Tailwind so
+ * `dark:bg-...` utilities work as expected.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Brand ramp — keeps the FrpDeck blue identity from the Arco era. */
+  --color-brand-50: #e8f3ff;
+  --color-brand-100: #d1e5ff;
+  --color-brand-200: #bedaff;
+  --color-brand-300: #94bfff;
+  --color-brand-400: #6cb1ff;
+  --color-brand-500: #4080ff;
+  --color-brand-600: #165dff;
+  --color-brand-700: #0e42d2;
+  --color-brand-800: #072ca6;
+  --color-brand-900: #041a7a;
+
+  /* Semantic status colours used by rule / history badges. */
+  --color-status-active: #00b42a;
+  --color-status-pending: #ff7d00;
+  --color-status-expired: #86909c;
+  --color-status-revoked: #f53f3f;
+  --color-status-failed: #f53f3f;
+
+  /*
+   * shadcn-vue token names — these drive variants on Button, Card, Input
+   * and friends. The raw CSS variable layer below (:root / .dark) maps
+   * them to concrete hex / oklch values so dark mode is a single class.
+   */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-float: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.06);
+  --shadow-modal: 0 24px 56px -20px rgba(15, 23, 42, 0.35),
+    0 8px 20px -12px rgba(15, 23, 42, 0.15);
+}
+
+:root {
+  --background: #f6f8fb;
+  --foreground: #1d2025;
+  --card: #ffffff;
+  --card-foreground: #1d2025;
+  --popover: #ffffff;
+  --popover-foreground: #1d2025;
+  --primary: #165dff;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f6;
+  --secondary-foreground: #1d2025;
+  --muted: #f1f4f9;
+  --muted-foreground: #64748b;
+  --accent: #e8f3ff;
+  --accent-foreground: #0e42d2;
+  --destructive: #f53f3f;
+  --destructive-foreground: #ffffff;
+  --border: #e5e8ef;
+  --input: #e5e8ef;
+  --ring: #4080ff;
+}
+
+.dark {
+  --background: #0f1216;
+  --foreground: #e4e6eb;
+  --card: #1a1d24;
+  --card-foreground: #e4e6eb;
+  --popover: #1a1d24;
+  --popover-foreground: #e4e6eb;
+  --primary: #4080ff;
+  --primary-foreground: #ffffff;
+  --secondary: #232730;
+  --secondary-foreground: #e4e6eb;
+  --muted: #1e2129;
+  --muted-foreground: #94a3b8;
+  --accent: #172554;
+  --accent-foreground: #bedaff;
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --border: #2a2e36;
+  --input: #2a2e36;
+  --ring: #4080ff;
+}
+
+/* -------- Base layer — sensible defaults so every page inherits them -------- */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html, body, #app {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB',
+      'Microsoft YaHei', sans-serif;
+    font-feature-settings: 'tnum' 1, 'cv11' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Smooth colour transitions on theme flip so the page does not flash. */
+  body,
+  body *:not(.no-theme-transition) {
+    transition:
+      background-color 0.18s ease,
+      border-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  /* Page container helper — centres content within a comfortable max width. */
+  .pp-page {
+    max-width: 1080px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* Generic typography helpers used across views. */
+  .pp-mono {
+    font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', monospace;
+    font-feature-settings: 'tnum' 1;
+  }
+  .pp-muted {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  /* Section heading with a brand stripe. */
+  .pp-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 12px 0;
+  }
+  .pp-section-title::before {
+    content: '';
+    width: 3px;
+    height: 14px;
+    background: var(--color-brand-600);
+    border-radius: 2px;
+    display: inline-block;
+  }
+}

@@ -1,0 +1,96 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供完整环境信息，帮我们快速定位。
+        如果是安全漏洞，请改走 [SECURITY.md](../blob/main/SECURITY.md) 的私下渠道，不要在这里公开。
+
+  - type: input
+    id: version
+    attributes:
+      label: FrpDeck 版本
+      description: 镜像 tag 或 git commit
+      placeholder: "v1.0.0 / ghcr.io/teacat99/frpdeck:1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose
+        - docker run
+        - 源码编译
+        - 其它
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firewall
+    attributes:
+      label: 防火墙驱动
+      options:
+        - iptables
+        - nftables
+        - ufw
+        - firewalld
+        - mock
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth_mode
+    attributes:
+      label: 鉴权模式
+      options:
+        - password
+        - ipwhitelist
+        - none
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统 / 内核
+      placeholder: "Ubuntu 24.04 / Linux 6.8.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从干净环境到复现的完整步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 附截图、日志、`iptables -L -n` 等输出（注意脱敏）
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 反代配置、`docker-compose.yaml` 关键段、相关 FrpDeck 环境变量等

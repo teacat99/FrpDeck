@@ -1,0 +1,15 @@
+.git
+.gitignore
+.github
+.cursor
+.idea
+.vscode
+*.md
+!README.md
+frontend/node_modules
+frontend/dist
+web/dist
+data
+*.db
+*.log
+plan.md

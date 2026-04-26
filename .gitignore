@@ -1,0 +1,67 @@
+# 编译产物
+/frpdeck
+/frpdeck.exe
+/frpdeck-*.exe
+/bin/
+/dist/
+/build/
+
+# Wails 产物
+/build/bin/
+/frontend/wailsjs/
+
+# Go
+*.test
+*.out
+vendor/
+*.pprof
+coverage.txt
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+web/dist/*
+!web/dist/.gitkeep
+
+# Android
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/captures/
+*.aar
+*.apk
+*.aab
+*.keystore
+*.jks
+gomobile-cache/
+
+# 数据目录
+/data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# IDE / 系统
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 日志 / 临时
+*.log
+tmp/
+.env
+.env.local
+
+# 开发工具产物（本地协作工具，不入库）
+.cursor/
+.playwright-mcp/
+.claude/
+plan.md
+agent-tools/
+agent-transcripts/

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/teacat99/FrpDeck/security/advisories/new
+    about: 安全问题请走私下渠道，不要在公开 Issue 提交
+  - name: 使用问题 / 部署咨询
+    url: https://github.com/teacat99/FrpDeck/discussions
+    about: 一般使用问题、部署咨询请到 Discussions
