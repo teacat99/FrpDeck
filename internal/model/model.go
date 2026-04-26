@@ -78,6 +78,7 @@ type Endpoint struct {
 	HeartbeatTimeout  int       `gorm:"default:0" json:"heartbeat_timeout"`
 	DriverMode        string    `gorm:"size:16;default:embedded" json:"driver_mode"`
 	SubprocessPath    string    `gorm:"size:512" json:"subprocess_path"`
+	SubprocessVersion string    `gorm:"size:32" json:"subprocess_version"`
 	Enabled           bool      `gorm:"default:true" json:"enabled"`
 	AutoStart         bool      `gorm:"default:true" json:"auto_start"`
 	CreatedAt         time.Time `json:"created_at"`
@@ -107,6 +108,7 @@ type Tunnel struct {
 	AllowUsers        string `gorm:"size:255" json:"allow_users"`
 	Role              string `gorm:"size:16" json:"role"`
 	ServerName        string `gorm:"size:128" json:"server_name"`
+	ServerUser        string `gorm:"size:64" json:"server_user"`
 
 	Encryption     bool   `gorm:"default:false" json:"encryption"`
 	Compression    bool   `gorm:"default:false" json:"compression"`
@@ -159,17 +161,32 @@ type ProfileBinding struct {
 	TunnelID   uint `gorm:"index" json:"tunnel_id"`
 }
 
+// RemoteNode lifecycle states. The pair that owns the corresponding stcp
+// tunnel persists the row; once revoked we keep the row for audit but the
+// linked tunnel is torn down so traffic stops immediately.
+const (
+	RemoteNodeStatusPending  = "pending"  // invitation issued, B has not redeemed yet
+	RemoteNodeStatusActive   = "active"   // tunnel up on at least one side
+	RemoteNodeStatusOffline  = "offline"  // last_seen older than threshold
+	RemoteNodeStatusRevoked  = "revoked"  // operator-cancelled, mgmt_token rejected
+	RemoteNodeStatusExpired  = "expired"  // invitation TTL elapsed without redeem
+)
+
 // RemoteNode represents a paired peer FrpDeck instance reachable via a
-// self-hosted stcp tunnel. Phase P5 fills in the actual pairing flow;
-// the entity is staked here so the schema migrates cleanly later.
+// self-hosted stcp tunnel. The auto-created tunnel (server-role on the
+// managed side, visitor-role on the managing side) is referenced via
+// TunnelID so revoke/teardown can address both directions consistently.
 type RemoteNode struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`
 	Name          string     `gorm:"size:64;not null" json:"name"`
 	Direction     string     `gorm:"size:16" json:"direction"`
 	EndpointID    uint       `gorm:"index" json:"endpoint_id"`
+	TunnelID      uint       `gorm:"index" json:"tunnel_id"`
+	RemoteUser    string     `gorm:"size:64" json:"remote_user"`
 	SK            string     `gorm:"size:255" json:"-"`
 	LocalBindPort int        `json:"local_bind_port"`
-	AuthToken     string     `gorm:"size:255" json:"-"`
+	AuthToken     string     `gorm:"size:1024" json:"-"`
+	MgmtTokenJTI  string     `gorm:"size:64;index" json:"-"`
 	InviteExpiry  *time.Time `json:"invite_expiry,omitempty"`
 	Status        string     `gorm:"size:16" json:"status"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`

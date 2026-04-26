@@ -12,6 +12,18 @@ const routes: RouteRecordRaw[] = [
       { path: 'tunnels', name: 'tunnels', component: () => import('@/views/TunnelsView.vue') },
       { path: 'history', name: 'history', component: () => import('@/views/HistoryView.vue') },
       {
+        path: 'remote',
+        name: 'remote',
+        meta: { adminOnly: true },
+        component: () => import('@/views/RemoteNodesView.vue')
+      },
+      {
+        path: 'profiles',
+        name: 'profiles',
+        meta: { adminOnly: true },
+        component: () => import('@/views/ProfilesView.vue')
+      },
+      {
         path: 'settings',
         name: 'settings',
         meta: { adminOnly: true },
@@ -31,6 +43,33 @@ const router = createRouter({
 
 router.beforeEach(async (to, _from, next) => {
   const auth = useAuthStore()
+
+  // Remote-management auto-login: when a peer FrpDeck opens our UI
+  // through an stcp tunnel it appends `?_redeem=<mgmt_token>` to the
+  // landing URL. We swap that for a regular session JWT, drop the
+  // sensitive query string from the URL, and continue to the requested
+  // route. Failure falls back to the normal login redirect below.
+  const redeemToken =
+    typeof to.query._redeem === 'string' ? (to.query._redeem as string) : ''
+  if (redeemToken) {
+    try {
+      await auth.refreshStatus()
+      await auth.redeemMgmtToken(redeemToken)
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
+        ?? (err as Error)?.message
+        ?? 'redeem failed'
+      const { Message } = await import('@/lib/toast')
+      const i18n = await import('@/i18n')
+      const t = i18n.default.global.t as (k: string, p?: Record<string, unknown>) => string
+      Message.error(t('remote.auto_login_failed', { msg }))
+    }
+    const cleanQuery = { ...to.query }
+    delete cleanQuery._redeem
+    next({ path: to.path, query: cleanQuery, hash: to.hash, replace: true })
+    return
+  }
+
   if (to.name !== 'login' && auth.required && !auth.token) {
     next({ name: 'login', query: { redirect: to.fullPath } })
     return

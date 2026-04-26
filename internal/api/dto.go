@@ -124,6 +124,7 @@ type tunnelReq struct {
 	SK                string `json:"sk"`
 	AllowUsers        string `json:"allow_users"`
 	ServerName        string `json:"server_name"`
+	ServerUser        string `json:"server_user"`
 
 	Encryption     bool   `json:"encryption"`
 	Compression    bool   `json:"compression"`
@@ -239,6 +240,7 @@ func (r *tunnelReq) applyToTunnel(t *model.Tunnel, keep *model.Tunnel) {
 	t.HostHeaderRewrite = r.HostHeaderRewrite
 	t.AllowUsers = r.AllowUsers
 	t.ServerName = r.ServerName
+	t.ServerUser = r.ServerUser
 	t.Encryption = r.Encryption
 	t.Compression = r.Compression
 	t.BandwidthLimit = r.BandwidthLimit

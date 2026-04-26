@@ -19,7 +19,9 @@ export default {
     tunnels: 'Tunnels',
     history: 'History',
     users: 'Users',
-    settings: 'Settings'
+    settings: 'Settings',
+    remote: 'Remote',
+    profiles: 'Profiles'
   },
   role: {
     admin: 'admin',
@@ -226,6 +228,44 @@ export default {
       copy: 'Copy snippet',
       copied: 'Copied to clipboard'
     },
+    import: {
+      action: 'Import frpc.toml',
+      title: 'Import tunnels from frpc.toml',
+      subtitle: 'Upload or paste an existing frpc.toml/yaml/json. FrpDeck dry-runs the parse first so you can review the plan before any tunnels are created. Legacy INI is not supported.',
+      upload_label: 'Pick a file',
+      paste_label: 'Or paste here',
+      placeholder: 'Paste your frpc.toml contents…',
+      preview: 'Parse & preview',
+      parsed_format: 'Detected format: {format}',
+      file_warnings: 'File-level notes (these fields will not be imported)',
+      endpoint_section: 'Parsed endpoint (reference only)',
+      target_endpoint: 'Target endpoint',
+      target_endpoint_placeholder: 'Select an existing endpoint',
+      target_endpoint_hint: 'For safety, FrpDeck never creates endpoints implicitly. Add the target frps in the Endpoints page first, then choose it here.',
+      tunnels_section: 'Tunnels ({count} parsed, {selected} selected)',
+      tunnels_empty: 'No tunnels found in this configuration.',
+      commit: 'Commit import ({count})',
+      success: 'Imported {ok} tunnel(s) successfully',
+      partial: 'Import done: {ok} ok, {fail} failed',
+      partial_fail: 'Import failed: {ok} ok, {fail} failed',
+      partial_with_skip: 'Imported {ok} tunnel(s); skipped {skipped} colliding name(s)',
+      row_ok: 'Created',
+      row_failed: 'Failed',
+      row_skipped: 'Skipped',
+      row_renamed: 'Renamed to {name}',
+      default_conflict: 'Default on conflict',
+      conflict: {
+        badge: 'Name conflict',
+        error: 'Error out',
+        rename: 'Auto-rename',
+        skip: 'Skip'
+      },
+      errors: {
+        empty: 'Please upload a file or paste content first',
+        endpoint_required: 'Please select a target endpoint',
+        no_tunnels_selected: 'Please select at least one tunnel'
+      }
+    },
     section: {
       basic: 'Basic',
       proxy: 'Proxy (public ingress)',
@@ -393,6 +433,92 @@ export default {
     'frpdeck-self.prereq.password-mode': 'Strongly recommend FrpDeck auth=password (never `none`).',
     'frpdeck-self.prereq.visitor-side': 'Another machine must run a matching stcp visitor tunnel.'
   },
+  remote: {
+    title: 'Remote management',
+    subtitle: 'Pair another FrpDeck through an stcp tunnel and drive its UI from here.',
+    auth_mode_required_title: 'Remote management requires password auth mode',
+    auth_mode_required_hint: 'For audit traceability FrpDeck only enables this when the runtime auth mode is `password`.',
+    tabs: {
+      managed_by_me: 'Remotes I manage',
+      manages_me: 'Hosts that can reach me'
+    },
+    refresh: 'Refresh',
+    invite_action: 'Generate invitation',
+    redeem_action: 'Add remote',
+    invite: {
+      title: 'Generate remote-management invitation',
+      subtitle: 'Hand the invitation to another FrpDeck so it can take over this control panel through stcp.',
+      endpoint: 'Transit frps',
+      endpoint_hint: 'stcp traffic flows via this frps. Make sure both peers can reach it.',
+      node_name: 'Node name',
+      node_name_hint: 'Display only; leave blank to use the default',
+      ui_scheme: 'Local UI scheme',
+      ui_scheme_http: 'HTTP (default)',
+      ui_scheme_https: 'HTTPS',
+      submit: 'Generate',
+      submitting: 'Generating…',
+      result_title: 'Invitation ready',
+      result_hint: 'Valid for 5 minutes. Hand it over fast — generate a fresh one if it expires.',
+      result_qr_hint: 'Scan the QR or copy the invitation below',
+      copy: 'Copy invitation',
+      copied: 'Copied to clipboard',
+      driver_warning: 'frpc driver not yet pushed: {msg}',
+      close: 'Close'
+    },
+    redeem: {
+      title: 'Add a new FrpDeck',
+      subtitle: 'Paste the invitation; FrpDeck wires up an stcp visitor and signs you in automatically.',
+      input_label: 'Invitation code',
+      input_placeholder: 'Paste the full string supplied by the peer here',
+      node_name: 'Local label',
+      node_name_hint: 'Defaults to the name on the invitation',
+      qr_upload: 'Scan QR image',
+      qr_upload_hint: 'Upload the QR screenshot the peer shared and FrpDeck decodes it for you.',
+      qr_decoding: 'Decoding…',
+      qr_decoded: 'Invitation decoded from QR image',
+      qr_failed: 'Could not decode a QR code from this image, retry or paste manually',
+      submit: 'Connect',
+      submitting: 'Connecting…',
+      success: 'Connected to {name}',
+      open_remote: 'Open remote console',
+      driver_warning: 'frpc driver not yet pushed: {msg}',
+      close: 'Close'
+    },
+    table: {
+      name: 'Name',
+      endpoint: 'Transit endpoint',
+      bind_port: 'Local port',
+      status: 'Status',
+      last_seen: 'Last seen',
+      created_at: 'Created',
+      actions: 'Actions'
+    },
+    direction: {
+      managed_by_me: 'I manage',
+      manages_me: 'They reach me'
+    },
+    status: {
+      pending: 'Pending',
+      active: 'Active',
+      offline: 'Offline',
+      revoked: 'Revoked',
+      expired: 'Expired'
+    },
+    open: 'Open remote',
+    open_unavailable: 'No UI port or peer offline',
+    refresh_invite: 'Refresh invitation',
+    refresh_confirm: 'Rotate SK + management token and reissue the invitation? The previous code becomes invalid immediately.',
+    refresh_success: 'Re-generated invitation for {name}',
+    revoke: 'Revoke',
+    revoke_confirm: 'Revoking deletes the auto-created stcp tunnel and invalidates the invitation. Continue?',
+    revoked: 'Remote node revoked',
+    empty_managed: 'No remote FrpDeck connected yet',
+    empty_managed_hint: 'Click "Add remote" to paste an invitation',
+    empty_manages: 'No outbound pairings',
+    empty_manages_hint: 'Generate an invitation to let another FrpDeck reach this one',
+    auto_login_busy: 'Logging in via invitation token…',
+    auto_login_failed: 'Auto login via invitation failed: {msg}'
+  },
   history: {
     title: 'Audit log',
     subtitle: 'Every write touches this trail',
@@ -473,5 +599,60 @@ export default {
     expiryExceeded: 'Expiry exceeds the allowed maximum',
     rateLimitExceeded: 'Too many requests, please try again later',
     concurrentQuotaExceeded: 'Concurrent quota reached for this source'
+  },
+  plugin: {
+    empty_hint: 'Select a plugin to reveal its fields.',
+    show_raw: 'Show / edit raw TOML',
+    hide_raw: 'Hide raw TOML',
+    raw_placeholder: 'e.g. localPath = "/srv"\nstripPrefix = "static"',
+    extras_warning: 'Unknown lines were preserved verbatim; this editor cannot manage them.',
+    unknown_hint: 'No schema bundled for "{plugin}" yet, edit the raw TOML manually.',
+    field: {
+      localPath: 'Local static file path',
+      stripPrefix: 'Strip prefix',
+      httpUser: 'HTTP user',
+      httpPassword: 'HTTP password',
+      unixPath: 'Unix socket path',
+      username: 'Username',
+      password: 'Password',
+      localAddr: 'Local address',
+      hostHeaderRewrite: 'Host header rewrite',
+      crtPath: 'Certificate path',
+      keyPath: 'Private key path'
+    }
+  },
+  profile: {
+    title: 'Profiles',
+    subtitle: 'Switch the active (endpoint, tunnel) selection in one click — home / office / demo scenarios.',
+    empty: 'No profiles yet — create one to bundle frequently used endpoints / tunnels.',
+    new: 'New profile',
+    edit: 'Edit profile',
+    name: 'Profile name',
+    activate: 'Activate',
+    deactivate: 'Deactivate',
+    deactivate_all: 'Clear active',
+    bindings: 'Bindings',
+    bindings_hint: 'Checked rows stay enabled when this profile is active; the rest are disabled.',
+    binding_endpoint: 'Whole endpoint',
+    binding_tunnel: 'Single tunnel',
+    activate_success: 'Switched to “{name}”',
+    deactivated: 'Active profile cleared',
+    delete_active_blocked: 'Cannot delete the active profile — switch or deactivate first.',
+    confirm_delete: 'Delete profile “{name}”?',
+    saved: 'Profile saved',
+    no_active: 'No profile is active; endpoint / tunnel toggles stay manual.',
+    active_label: 'Active',
+    edit_active_warn: 'Editing the active profile re-applies the binding set immediately.'
+  },
+  frpc: {
+    download: 'Download frpc',
+    download_hint: 'FrpDeck will fetch the frpc binary from GitHub into <data_dir>/bin.',
+    downloading: 'Downloading…',
+    downloaded: 'Downloaded: {path}',
+    probe: 'Probe frpc version',
+    probe_ok: 'Detected frpc {version}',
+    probe_incompatible: 'Detected frpc {version} below required {min}',
+    custom_path: 'Custom frpc path',
+    custom_path_hint: 'Leave blank to use the FrpDeck-downloaded binary; otherwise the binary at this path.'
   }
 }

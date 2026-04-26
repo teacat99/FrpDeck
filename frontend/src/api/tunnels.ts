@@ -129,3 +129,121 @@ export async function listTunnelTemplates(): Promise<TunnelTemplate[]> {
   const { data } = await client.get<{ templates: TunnelTemplate[] }>('/tunnels/templates')
   return data.templates ?? []
 }
+
+// ImportEndpointDraft mirrors internal/frpcimport.EndpointDraft. The
+// import preview UI displays it as a read-only summary so the operator
+// can confirm which existing endpoint to bind the imported tunnels to.
+export interface ImportEndpointDraft {
+  name: string
+  group: string
+  addr: string
+  port: number
+  protocol: string
+  user: string
+  token: string
+  tls_enable: boolean
+  pool_count: number
+  heartbeat_interval: number
+  heartbeat_timeout: number
+  driver_mode: string
+  enabled: boolean
+  auto_start: boolean
+}
+
+// ImportTunnelDraft mirrors internal/frpcimport.TunnelDraft. The wire
+// shape is intentionally close to TunnelWrite so the commit step can
+// pass the user-edited drafts straight back without remapping.
+export interface ImportTunnelDraft {
+  name: string
+  type: string
+  role: string
+  local_ip: string
+  local_port: number
+  remote_port: number
+  custom_domains: string
+  subdomain: string
+  locations: string
+  http_user: string
+  http_password: string
+  host_header_rewrite: string
+  sk: string
+  allow_users: string
+  server_name: string
+  encryption: boolean
+  compression: boolean
+  bandwidth_limit: string
+  group: string
+  group_key: string
+  health_check_type: string
+  health_check_url: string
+  plugin: string
+  plugin_config: string
+  enabled: boolean
+  auto_start: boolean
+  warnings?: string[]
+  // Set by the backend when an endpoint_id was supplied to the preview
+  // and a tunnel of the same name already exists. The UI uses this to
+  // default the per-row OnConflict to "rename" instead of "error".
+  conflict?: boolean
+}
+
+export type ImportConflictStrategy = 'error' | 'skip' | 'rename'
+
+export interface ImportPlan {
+  endpoint: ImportEndpointDraft | null
+  tunnels: ImportTunnelDraft[]
+  warnings?: string[]
+  format: string
+}
+
+// importTunnelsPreview parses the supplied frpc.toml/yaml/json content
+// and returns a Plan describing what would be created. No state is
+// mutated — the user reviews the plan and then calls the commit API.
+//
+// When endpointId is provided we ask the backend to cross-check tunnel
+// names against the picked endpoint and stamp `conflict: true` on each
+// colliding draft.
+export async function importTunnelsPreview(
+  content: string,
+  filename?: string,
+  endpointId?: number,
+): Promise<ImportPlan> {
+  const { data } = await client.post<ImportPlan>('/tunnels/import/preview', {
+    content,
+    filename,
+    endpoint_id: endpointId,
+  })
+  return data
+}
+
+export interface ImportCommitTunnel extends ImportTunnelDraft {
+  on_conflict?: ImportConflictStrategy
+}
+
+export interface ImportCommitItem {
+  name: string
+  id?: number
+  error?: string
+  skipped?: boolean
+  renamed?: string
+}
+
+// importTunnelsCommit creates the selected tunnel drafts under the
+// chosen endpoint. Errors are returned per-tunnel so a single bad row
+// does not abort the rest of the batch. defaultOnConflict applies to
+// drafts whose `on_conflict` field is unset.
+export async function importTunnelsCommit(
+  endpointId: number,
+  tunnels: ImportCommitTunnel[],
+  defaultOnConflict: ImportConflictStrategy = 'error',
+): Promise<ImportCommitItem[]> {
+  const { data } = await client.post<{ items: ImportCommitItem[] }>(
+    '/tunnels/import/commit',
+    {
+      endpoint_id: endpointId,
+      tunnels,
+      default_on_conflict: defaultOnConflict,
+    },
+  )
+  return data.items ?? []
+}

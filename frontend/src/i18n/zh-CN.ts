@@ -19,7 +19,9 @@ export default {
     tunnels: '隧道',
     history: '历史',
     users: '用户',
-    settings: '设置'
+    settings: '设置',
+    remote: '远程代管',
+    profiles: '场景'
   },
   role: {
     admin: '管理员',
@@ -226,6 +228,44 @@ export default {
       copy: '复制片段',
       copied: '已复制到剪贴板'
     },
+    import: {
+      action: '导入 frpc.toml',
+      title: '从 frpc.toml 导入隧道',
+      subtitle: '上传或粘贴现有的 frpc.toml / yaml / json，FrpDeck 会先做 dry-run 解析，确认无误后再批量创建（不支持 INI 旧格式）。',
+      upload_label: '选择文件',
+      paste_label: '或直接粘贴',
+      placeholder: '把 frpc.toml 的内容贴到这里…',
+      preview: '解析预览',
+      parsed_format: '已识别格式：{format}',
+      file_warnings: '文件级提醒（这些字段不会被导入）',
+      endpoint_section: '解析出的端点（仅供参考）',
+      target_endpoint: '目标端点',
+      target_endpoint_placeholder: '选择已有端点',
+      target_endpoint_hint: '为安全起见，FrpDeck 不会自动创建端点；请先在「端点」页面建好目标 frps，再在这里选择。',
+      tunnels_section: '隧道清单（共 {count}，已选 {selected}）',
+      tunnels_empty: '该配置文件中没有可导入的隧道。',
+      commit: '提交导入（{count}）',
+      success: '已成功导入 {ok} 条隧道',
+      partial: '导入完成：成功 {ok}，失败 {fail}',
+      partial_fail: '导入失败：成功 {ok}，失败 {fail}',
+      partial_with_skip: '已导入 {ok} 条；跳过 {skipped} 条同名隧道',
+      row_ok: '已创建',
+      row_failed: '失败',
+      row_skipped: '已跳过',
+      row_renamed: '已重命名为 {name}',
+      default_conflict: '同名时默认',
+      conflict: {
+        badge: '同名',
+        error: '直接报错',
+        rename: '自动重命名',
+        skip: '跳过'
+      },
+      errors: {
+        empty: '请先上传文件或粘贴内容',
+        endpoint_required: '请先选择目标端点',
+        no_tunnels_selected: '请至少勾选一条隧道'
+      }
+    },
     section: {
       basic: '基础',
       proxy: 'Proxy（公网入口）',
@@ -393,6 +433,92 @@ export default {
     'frpdeck-self.prereq.password-mode': '强烈建议把 FrpDeck 切到 password 鉴权（绝不能 none）',
     'frpdeck-self.prereq.visitor-side': '另一台机器上需有对应 stcp visitor 隧道'
   },
+  remote: {
+    title: '远程代管',
+    subtitle: '通过 stcp 隧道把另一台 FrpDeck 接管到当前控制台，无需手动开放公网 UI。',
+    auth_mode_required_title: '远程代管需要 password 鉴权模式',
+    auth_mode_required_hint: '为保证身份可追溯，FrpDeck 仅在「设置 → 运行时」切换为 password 模式时启用此功能。',
+    tabs: {
+      managed_by_me: '我管理的远端',
+      manages_me: '可访问我的远端'
+    },
+    refresh: '刷新',
+    invite_action: '生成邀请码',
+    redeem_action: '接入新的 FrpDeck',
+    invite: {
+      title: '生成远程代管邀请码',
+      subtitle: '用于让另一台 FrpDeck 通过 stcp 接管这台 FrpDeck 的控制面。',
+      endpoint: '中转服务端（frps）',
+      endpoint_hint: 'stcp 流量会经由该 frps 中转，请确保该端点已经在双方都可达。',
+      node_name: '节点名',
+      node_name_hint: '展示用，可留空使用默认',
+      ui_scheme: '本机 UI 协议',
+      ui_scheme_http: 'HTTP（默认）',
+      ui_scheme_https: 'HTTPS',
+      submit: '生成',
+      submitting: '生成中…',
+      result_title: '邀请码已生成',
+      result_hint: '邀请码 5 分钟内有效，请尽快交给对方录入；过期后请重新生成。',
+      result_qr_hint: '扫码或复制下面的邀请码',
+      copy: '复制邀请码',
+      copied: '已复制到剪贴板',
+      driver_warning: 'frpc 驱动暂未推送：{msg}',
+      close: '关闭'
+    },
+    redeem: {
+      title: '接入新的 FrpDeck',
+      subtitle: '把对方提供的邀请码完整粘贴进来，FrpDeck 会自动建立 stcp visitor 隧道并完成首次登录。',
+      input_label: '邀请码',
+      input_placeholder: '把对方生成的整段字符串粘贴到这里',
+      node_name: '本地标签',
+      node_name_hint: '默认沿用对方提供的名字',
+      qr_upload: '截图识别',
+      qr_upload_hint: '可上传对方分享的二维码截图，FrpDeck 会自动解码并填入。',
+      qr_decoding: '解析中…',
+      qr_decoded: '已从二维码识别到邀请码',
+      qr_failed: '未能从图片中识别出二维码，请重试或手动粘贴',
+      submit: '接入',
+      submitting: '处理中…',
+      success: '已成功接入：{name}',
+      open_remote: '打开远端控制台',
+      driver_warning: 'frpc 驱动暂未推送：{msg}',
+      close: '关闭'
+    },
+    table: {
+      name: '节点名',
+      endpoint: '中转端点',
+      bind_port: '本地端口',
+      status: '状态',
+      last_seen: '最近上线',
+      created_at: '建立时间',
+      actions: '操作'
+    },
+    direction: {
+      managed_by_me: '我管理',
+      manages_me: '可访问我'
+    },
+    status: {
+      pending: '待激活',
+      active: '在线',
+      offline: '离线',
+      revoked: '已撤销',
+      expired: '已过期'
+    },
+    open: '打开远端',
+    open_unavailable: '该节点未配置 UI 端口或暂时离线',
+    refresh_invite: '重新生成邀请',
+    refresh_confirm: '将旋转 SK 与管理 token 并重新分发邀请码，旧邀请立即失效。继续？',
+    refresh_success: '已为 {name} 重新生成邀请码',
+    revoke: '撤销',
+    revoke_confirm: '撤销将删除自动建立的 stcp 隧道并使邀请码作废，确定？',
+    revoked: '已撤销远端节点',
+    empty_managed: '暂未接入任何远端 FrpDeck',
+    empty_managed_hint: '点击右上角「接入新的 FrpDeck」开始',
+    empty_manages: '暂无对外授权',
+    empty_manages_hint: '点击「生成邀请码」让其他 FrpDeck 远程接管本机',
+    auto_login_busy: '正在通过邀请码自动登录…',
+    auto_login_failed: '邀请码自动登录失败：{msg}'
+  },
   history: {
     title: '操作历史',
     subtitle: '审计日志：每一次写入都会留痕',
@@ -473,5 +599,60 @@ export default {
     expiryExceeded: '到期时间超过最大限制',
     rateLimitExceeded: '请求过于频繁，请稍后再试',
     concurrentQuotaExceeded: '同一来源并发数已达上限'
+  },
+  plugin: {
+    empty_hint: '选择插件后这里会展示对应的字段。',
+    show_raw: '查看 / 编辑原始 TOML',
+    hide_raw: '收起原始 TOML',
+    raw_placeholder: '例如：localPath = "/srv"\nstripPrefix = "static"',
+    extras_warning: '存在未识别的字段，已保留在原始 TOML 中，但本编辑器无法直接管理。',
+    unknown_hint: '未内置「{plugin}」插件的字段表，可手动维护原始 TOML。',
+    field: {
+      localPath: '本地静态文件路径',
+      stripPrefix: '剥离前缀',
+      httpUser: 'HTTP 用户名',
+      httpPassword: 'HTTP 密码',
+      unixPath: 'Unix Socket 路径',
+      username: '用户名',
+      password: '密码',
+      localAddr: '本地地址',
+      hostHeaderRewrite: 'Host 重写',
+      crtPath: '证书路径',
+      keyPath: '密钥路径'
+    }
+  },
+  profile: {
+    title: '场景',
+    subtitle: '一键切换 (Endpoint, Tunnel) 启用集合，对应「家里」「办公室」「演示」等场景',
+    empty: '尚无场景，先创建一个把常用 endpoint / tunnel 组合保存下来。',
+    new: '新建场景',
+    edit: '编辑场景',
+    name: '场景名称',
+    activate: '启用',
+    deactivate: '停用',
+    deactivate_all: '清除当前激活',
+    bindings: '场景成员',
+    bindings_hint: '勾选会被启用的 endpoint / tunnel；未勾选的会被禁用。',
+    binding_endpoint: '整个 endpoint',
+    binding_tunnel: '单个 tunnel',
+    activate_success: '已切换到「{name}」',
+    deactivated: '已清除激活场景',
+    delete_active_blocked: '当前激活的场景无法删除，请先停用或切换到其它场景。',
+    confirm_delete: '确认删除场景「{name}」？',
+    saved: '场景已保存',
+    no_active: '当前没有激活的场景，所有 endpoint / tunnel 维持人工状态。',
+    active_label: '当前激活',
+    edit_active_warn: '编辑激活的场景会立即重新应用启用集合。'
+  },
+  frpc: {
+    download: '一键下载 frpc',
+    download_hint: 'FrpDeck 会从 GitHub 下载 frpc 二进制并落到 <data_dir>/bin。',
+    downloading: '正在下载…',
+    downloaded: '下载完成：{path}',
+    probe: '探测 frpc 版本',
+    probe_ok: '已识别 frpc {version}',
+    probe_incompatible: '当前 frpc {version} 低于最低要求 {min}',
+    custom_path: '自定义 frpc 路径',
+    custom_path_hint: '留空使用 FrpDeck 下载的版本，否则使用此路径下的二进制。'
   }
 }

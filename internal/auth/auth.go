@@ -485,6 +485,101 @@ func (a *Authenticator) IssueAccessToken(u *model.User) (string, error) {
 	return a.sign(u)
 }
 
+// MgmtTokenScope is the JWT `scope` claim attached to remote-management
+// bootstrap tokens (P5-A). Tokens with this scope can ONLY be exchanged
+// at /api/auth/remote-redeem and never accepted as a regular bearer
+// credential by the Authorization-header path.
+const MgmtTokenScope = "remote_redeem"
+
+// IssueMgmtToken mints a JWT used by the P5-A remote management flow.
+//
+// `nodeID` references the RemoteNode row on the issuer side (direction =
+// `manages_me`); the redemption handler validates the row still exists
+// and is not revoked/expired before exchanging the token for a regular
+// session JWT belonging to `actor`. Embedding both fields lets the
+// remote-redeem path identify which pairing the bearer claims to be
+// part of without trusting any caller-supplied identifier.
+//
+// The TTL is normally `runtime.Settings.RemoteMgmtTokenTTL()`; pass any
+// concrete duration to override (the unit test uses sub-second TTLs).
+func (a *Authenticator) IssueMgmtToken(actor *model.User, nodeID uint, ttl time.Duration, jti string) (string, error) {
+	if actor == nil || actor.ID == 0 {
+		return "", errors.New("actor required")
+	}
+	if jti == "" {
+		jti = randHex(16)
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub":      actor.Username,
+		"uid":      actor.ID,
+		"role":     actor.Role,
+		"username": actor.Username,
+		"scope":    MgmtTokenScope,
+		"node":     nodeID,
+		"jti":      jti,
+		"iat":      now.Unix(),
+		"exp":      now.Add(ttl).Unix(),
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.secret)
+	if err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
+// MgmtClaims is the parsed payload of a mgmt token. `Actor` is the user
+// the token will impersonate after redemption; `NodeID` is the RemoteNode
+// the redeemer must match. Returned shape stays minimal so the api
+// package can reach in directly without re-parsing the JWT.
+type MgmtClaims struct {
+	Actor  *model.User
+	NodeID uint
+	JTI    string
+}
+
+// ValidateMgmtToken parses a mgmt token and verifies signature, expiry,
+// scope, the referenced user account being enabled, and the node id
+// being non-zero. Returns nil on any failure (callers must NOT log the
+// underlying parse error to avoid leaking why a token is bad).
+func (a *Authenticator) ValidateMgmtToken(raw string) *MgmtClaims {
+	if raw == "" {
+		return nil
+	}
+	tok, err := jwt.Parse(raw, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return a.secret, nil
+	})
+	if err != nil || !tok.Valid {
+		return nil
+	}
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil
+	}
+	if scope, _ := claims["scope"].(string); scope != MgmtTokenScope {
+		return nil
+	}
+	uidFloat, _ := claims["uid"].(float64)
+	uid := uint(uidFloat)
+	nodeFloat, _ := claims["node"].(float64)
+	nodeID := uint(nodeFloat)
+	jti, _ := claims["jti"].(string)
+	if uid == 0 || nodeID == 0 {
+		return nil
+	}
+	u, err := a.users.GetUserByID(uid)
+	if err != nil || u == nil || u.Disabled {
+		return nil
+	}
+	return &MgmtClaims{Actor: u, NodeID: nodeID, JTI: jti}
+}
+
 // checkJWT validates the bearer token and returns the active user behind
 // it. An account that has since been disabled or deleted rejects the
 // request even if the token has not yet expired.
@@ -554,6 +649,17 @@ func randomSecret(n int) []byte {
 	out := make([]byte, hex.EncodedLen(n))
 	hex.Encode(out, buf)
 	return out
+}
+
+// randHex returns a hex-encoded random string of n bytes (so 2*n hex chars).
+// Used to mint JTIs and stcp pre-shared keys; both must be unguessable but
+// not necessarily cryptographically signed (the signing happens via JWT).
+func randHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(buf)
 }
 
 // truncate clamps a string at max UTF-8 bytes; used to keep User-Agent

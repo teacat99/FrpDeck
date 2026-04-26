@@ -103,7 +103,7 @@ func bootstrap() (*Runtime, error) {
 		adminUsername = store.DefaultAdminUsername
 	}
 
-	drv, err := frpcd.NewDriver(cfg.FrpcdDriver)
+	drv, err := frpcd.NewDriver(cfg.FrpcdDriver, frpcd.DriverOptions{DataDir: cfg.DataDir})
 	if err != nil {
 		return nil, fmt.Errorf("frpcd driver: %w", err)
 	}

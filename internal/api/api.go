@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,10 +21,11 @@ import (
 	"github.com/teacat99/FrpDeck/internal/captcha"
 	"github.com/teacat99/FrpDeck/internal/config"
 	"github.com/teacat99/FrpDeck/internal/diag"
-	"github.com/teacat99/FrpDeck/internal/frpshelper"
-	"github.com/teacat99/FrpDeck/internal/templates"
 	"github.com/teacat99/FrpDeck/internal/frpcd"
+	"github.com/teacat99/FrpDeck/internal/frpcimport"
+	"github.com/teacat99/FrpDeck/internal/frpshelper"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
+	"github.com/teacat99/FrpDeck/internal/templates"
 	"github.com/teacat99/FrpDeck/internal/model"
 	"github.com/teacat99/FrpDeck/internal/netutil"
 	"github.com/teacat99/FrpDeck/internal/notify"
@@ -82,6 +84,10 @@ func (s *Server) Router(engine *gin.Engine) {
 	pub.GET("/auth/status", s.auth.StatusHandler)
 	pub.POST("/auth/login", s.auth.LoginHandler)
 	pub.GET("/auth/captcha", s.handleIssueCaptcha)
+	// The mgmt-token exchange is the very first call B's browser issues
+	// to A through the stcp tunnel, so it has to live on the public
+	// group; the token in the body IS the credential.
+	pub.POST("/auth/remote-redeem", s.handleRemoteRedeemToken)
 	pub.GET("/version", s.handleVersion)
 	// WebSocket sits on the public group: the gin auth middleware
 	// only knows how to validate Authorization headers, but browsers
@@ -119,6 +125,17 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.POST("/tunnels/:id/renew", s.handleRenewTunnel)
 	g.POST("/tunnels/:id/diagnose", s.handleDiagnoseTunnel)
 	g.GET("/tunnels/:id/frps-advice", s.handleAdviseTunnelFrps)
+	g.POST("/tunnels/import/preview", s.handleImportTunnelsPreview)
+	g.POST("/tunnels/import/commit", s.handleImportTunnelsCommit)
+
+	// Remote management (P5-A). Every route is also gated by
+	// remoteAuthGuard inside the handler so the API surface stays inert
+	// in non-password modes regardless of route mounting order.
+	g.GET("/remote/nodes", s.handleListRemoteNodes)
+	g.POST("/remote/invitations", s.handleCreateInvitation)
+	g.POST("/remote/nodes/:id/refresh", s.handleRefreshInvitation)
+	g.POST("/remote/redeem", s.handleRedeemInvitation)
+	g.DELETE("/remote/nodes/:id", s.handleRevokeRemoteNode)
 
 	// User management endpoints (admin-only is enforced inside the
 	// handler via ensureAdmin so the auth layer can keep a single gate).
@@ -141,6 +158,14 @@ func (s *Server) Router(engine *gin.Engine) {
 
 	// Ntfy push: synchronous test hook so the operator can validate URL.
 	g.POST("/notify/test", s.handleTestNotify)
+
+	// Subprocess driver helpers (P8-A): probe a frpc binary's version
+	// and one-click download the bundled release into <data_dir>/bin.
+	g.POST("/frpc/probe", s.handleProbeFrpc)
+	g.POST("/frpc/download", s.handleDownloadFrpc)
+
+	// Profiles (P8-C/D): named bundles of (Endpoint, Tunnel) toggles.
+	s.registerProfileRoutes(g)
 }
 
 // clientIP is the single choke-point for extracting the trusted client IP.
@@ -233,6 +258,12 @@ func (s *Server) handleCreateEndpoint(c *gin.Context) {
 	}
 	var e model.Endpoint
 	req.applyToEndpoint(&e, nil)
+	probeWarn := ""
+	if err := s.ensureSubprocessReady(&e); err != nil {
+		// Persist the row regardless — we want to surface "binary not
+		// usable" as a UI warning rather than a hard 5xx.
+		probeWarn = err.Error()
+	}
 	if err := s.store.CreateEndpoint(&e); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -242,6 +273,10 @@ func (s *Server) handleCreateEndpoint(c *gin.Context) {
 		Action: "create_endpoint", Actor: actor, ActorIP: s.clientIP(c),
 		Detail: e.Name,
 	})
+	if probeWarn != "" {
+		c.JSON(http.StatusOK, gin.H{"endpoint": e, "subprocess_warning": probeWarn})
+		return
+	}
 	c.JSON(http.StatusOK, e)
 }
 
@@ -274,6 +309,19 @@ func (s *Server) handleUpdateEndpoint(c *gin.Context) {
 	}
 	patch := *existing
 	req.applyToEndpoint(&patch, existing)
+	probeWarn := ""
+	// Re-probe only if the binary path changed or driver mode flipped to
+	// subprocess; otherwise reuse the cached version to avoid spawning a
+	// process on every save.
+	if patch.DriverMode == model.DriverModeSubprocess &&
+		(existing.DriverMode != model.DriverModeSubprocess ||
+			existing.SubprocessPath != patch.SubprocessPath) {
+		if err := s.ensureSubprocessReady(&patch); err != nil {
+			probeWarn = err.Error()
+		}
+	} else {
+		patch.SubprocessVersion = existing.SubprocessVersion
+	}
 	if err := s.store.UpdateEndpoint(&patch); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -283,6 +331,10 @@ func (s *Server) handleUpdateEndpoint(c *gin.Context) {
 		Action: "update_endpoint", Actor: actor, ActorIP: s.clientIP(c),
 		Detail: patch.Name,
 	})
+	if probeWarn != "" {
+		c.JSON(http.StatusOK, gin.H{"endpoint": patch, "subprocess_warning": probeWarn})
+		return
+	}
 	c.JSON(http.StatusOK, patch)
 }
 
@@ -662,6 +714,284 @@ func (s *Server) handleListTunnelTemplates(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"templates": all})
+}
+
+// importPreviewReq is the dry-run payload: filename is optional but
+// helps the parser detect the source format and seed the suggested
+// endpoint name. content is the raw frpc.toml/yaml/json text the user
+// pasted or uploaded — kept as a string (not multipart) because the
+// existing JSON middleware handles auth + IP whitelist uniformly.
+//
+// EndpointID is optional. When the operator already picked a target
+// endpoint in the preview UI we cross-reference its existing tunnel
+// names and stamp `Conflict: true` on any draft that would collide,
+// so the UI can default the per-row resolution to rename / skip.
+type importPreviewReq struct {
+	Filename   string `json:"filename"`
+	Content    string `json:"content"`
+	EndpointID uint   `json:"endpoint_id,omitempty"`
+}
+
+// handleImportTunnelsPreview parses an uploaded frpc config and returns
+// a Plan describing the endpoint + tunnels we would create. No state
+// is mutated. plan.md §15 calls out that imports must be dry-runnable
+// before committing so the operator can review name collisions and
+// drop entries they do not want.
+func (s *Server) handleImportTunnelsPreview(c *gin.Context) {
+	if !s.ensureAdmin(c) {
+		return
+	}
+	var req importPreviewReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	content := []byte(req.Content)
+	if len(content) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
+		return
+	}
+	plan, err := frpcimport.Parse(content, req.Filename)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.EndpointID > 0 {
+		if existing, err := s.store.ListTunnelsByEndpoint(req.EndpointID); err == nil {
+			taken := make(map[string]struct{}, len(existing))
+			for _, t := range existing {
+				taken[strings.ToLower(strings.TrimSpace(t.Name))] = struct{}{}
+			}
+			for i := range plan.Tunnels {
+				key := strings.ToLower(strings.TrimSpace(plan.Tunnels[i].Name))
+				if _, hit := taken[key]; hit {
+					plan.Tunnels[i].Conflict = true
+				}
+			}
+		}
+	}
+	c.JSON(http.StatusOK, plan)
+}
+
+// importCommitReq is the commit payload. The endpoint_id selects which
+// existing endpoint should host the imported tunnels — we never create
+// endpoints implicitly through import to keep the security boundary
+// (token / TLS) explicit. Each tunnel is the user-edited TunnelDraft
+// (the preview UI may have renamed entries or dropped some).
+//
+// DefaultOnConflict applies when a draft does not specify its own
+// override; valid values are "error" (default), "skip", "rename".
+type importCommitReq struct {
+	EndpointID        uint                  `json:"endpoint_id"`
+	Tunnels           []importCommitTunnel  `json:"tunnels"`
+	DefaultOnConflict string                `json:"default_on_conflict,omitempty"`
+}
+
+// importCommitTunnel wraps the draft with the per-row conflict resolution
+// strategy chosen in the preview UI. Keeping the override per-row lets
+// the operator skip noisy collisions while still hard-renaming the rest.
+type importCommitTunnel struct {
+	frpcimport.TunnelDraft
+	OnConflict string `json:"on_conflict,omitempty"`
+}
+
+// Conflict resolution strategies. We accept the strings literally from
+// the UI; anything unrecognised falls back to "error" so a typo cannot
+// silently skip a tunnel the operator wanted to import.
+const (
+	importConflictError  = "error"
+	importConflictSkip   = "skip"
+	importConflictRename = "rename"
+)
+
+// importCommitResult records what happened to one tunnel during commit.
+// We always return both Created and Errors so the UI can render a
+// per-row badge instead of failing the whole batch on the first error.
+// Skipped is set when a row collided and the resolution chose to skip
+// it; the row is still reported so the UI can render a visual hint.
+type importCommitItem struct {
+	Name    string `json:"name"`
+	ID      uint   `json:"id,omitempty"`
+	Error   string `json:"error,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+	Renamed string `json:"renamed,omitempty"`
+}
+
+// handleImportTunnelsCommit creates one tunnel per draft. It validates
+// each draft through the regular tunnelReq.validate() so the import
+// path produces tunnels indistinguishable from manually-created ones —
+// just with `source = imported` for analytics. We deliberately skip
+// pre-validating the entire batch up front: a malformed entry should
+// not block the rest from being imported.
+func (s *Server) handleImportTunnelsCommit(c *gin.Context) {
+	if !s.ensureAdmin(c) {
+		return
+	}
+	var req importCommitReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.EndpointID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint_id required"})
+		return
+	}
+	ep, err := s.store.GetEndpoint(req.EndpointID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if ep == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint not found"})
+		return
+	}
+	if len(req.Tunnels) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tunnels required"})
+		return
+	}
+
+	defaultStrategy := normaliseConflictStrategy(req.DefaultOnConflict)
+
+	existing, err := s.store.ListTunnelsByEndpoint(req.EndpointID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	taken := make(map[string]struct{}, len(existing))
+	for _, t := range existing {
+		taken[strings.ToLower(strings.TrimSpace(t.Name))] = struct{}{}
+	}
+
+	uid, actor, _ := auth.Principal(c)
+	results := make([]importCommitItem, 0, len(req.Tunnels))
+	for _, draft := range req.Tunnels {
+		original := strings.TrimSpace(draft.Name)
+		item := importCommitItem{Name: original}
+		strategy := normaliseConflictStrategy(draft.OnConflict)
+		if strategy == "" {
+			strategy = defaultStrategy
+		}
+		if strategy == "" {
+			strategy = importConflictError
+		}
+
+		nameLower := strings.ToLower(original)
+		if _, hit := taken[nameLower]; hit {
+			switch strategy {
+			case importConflictSkip:
+				item.Skipped = true
+				results = append(results, item)
+				continue
+			case importConflictRename:
+				renamed := uniqueImportName(original, taken)
+				draft.Name = renamed
+				item.Renamed = renamed
+			default:
+				item.Error = "tunnel name already exists; pick rename or skip"
+				results = append(results, item)
+				continue
+			}
+		}
+
+		tr := importDraftToReq(req.EndpointID, draft.TunnelDraft)
+		if err := tr.validate(); err != nil {
+			item.Error = err.Error()
+			results = append(results, item)
+			continue
+		}
+		var t model.Tunnel
+		tr.applyToTunnel(&t, nil)
+		t.Status = model.StatusPending
+		t.Source = model.TunnelSourceImported
+		t.CreatedBy = uid
+		if err := s.store.CreateTunnel(&t); err != nil {
+			item.Error = err.Error()
+			results = append(results, item)
+			continue
+		}
+		if err := s.lifecycle.Schedule(&t); err != nil {
+			// Best-effort: tunnel persisted, lifecycle hookup failed —
+			// the periodic reconcile will recover, so we still report
+			// success but pass the error through for visibility.
+			item.Error = err.Error()
+		}
+		item.ID = t.ID
+		taken[strings.ToLower(strings.TrimSpace(t.Name))] = struct{}{}
+		results = append(results, item)
+		_ = s.store.WriteAudit(&model.AuditLog{
+			Action: "import_tunnel", TunnelID: t.ID, Actor: actor, ActorIP: s.clientIP(c),
+			Detail: t.Name,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": results})
+}
+
+// normaliseConflictStrategy validates and lower-cases the strategy
+// string. Empty input returns "" so the caller can decide between
+// per-tunnel override → batch default → final fallback.
+func normaliseConflictStrategy(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "skip":
+		return importConflictSkip
+	case "rename":
+		return importConflictRename
+	case "error":
+		return importConflictError
+	default:
+		return ""
+	}
+}
+
+// uniqueImportName appends `-<n>` (n>=2) until the result is not in the
+// taken set. Naming defaults to `name-2` (not `-1`) because operators
+// expect the original to read as the "primary" of the cluster.
+func uniqueImportName(base string, taken map[string]struct{}) string {
+	if base == "" {
+		base = "imported"
+	}
+	for n := 2; n < 1000; n++ {
+		candidate := fmt.Sprintf("%s-%d", base, n)
+		if _, hit := taken[strings.ToLower(candidate)]; !hit {
+			return candidate
+		}
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
+
+// importDraftToReq adapts a frpcimport.TunnelDraft into the existing
+// tunnelReq used by the validate / applyToTunnel pipeline. Keeping the
+// adapter local avoids leaking import-only types into the DTO file.
+func importDraftToReq(endpointID uint, d frpcimport.TunnelDraft) *tunnelReq {
+	return &tunnelReq{
+		EndpointID:        endpointID,
+		Name:              d.Name,
+		Type:              d.Type,
+		Role:              d.Role,
+		LocalIP:           d.LocalIP,
+		LocalPort:         d.LocalPort,
+		RemotePort:        d.RemotePort,
+		CustomDomains:     d.CustomDomains,
+		Subdomain:         d.Subdomain,
+		Locations:         d.Locations,
+		HTTPUser:          d.HTTPUser,
+		HTTPPassword:      d.HTTPPassword,
+		HostHeaderRewrite: d.HostHeaderRewrite,
+		SK:                d.SK,
+		AllowUsers:        d.AllowUsers,
+		ServerName:        d.ServerName,
+		Encryption:        d.Encryption,
+		Compression:       d.Compression,
+		BandwidthLimit:    d.BandwidthLimit,
+		Group:             d.Group,
+		GroupKey:          d.GroupKey,
+		HealthCheckType:   d.HealthCheckType,
+		HealthCheckURL:    d.HealthCheckURL,
+		Plugin:            d.Plugin,
+		PluginConfig:      d.PluginConfig,
+		Enabled:           d.Enabled,
+		AutoStart:         d.AutoStart,
+	}
 }
 
 // pushTunnelToDriver looks up the endpoint and registers/refreshes the

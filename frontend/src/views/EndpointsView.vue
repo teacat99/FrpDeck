@@ -21,6 +21,7 @@ import { Message } from '@/lib/toast'
 import {
   listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint,
 } from '@/api/endpoints'
+import { probeFrpc, downloadFrpc } from '@/api/profiles'
 import type { Endpoint, EndpointWrite } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useRealtimeStore } from '@/stores/realtime'
@@ -46,6 +47,7 @@ interface FormState {
   meta_token: string
   user: string
   driver_mode: 'embedded' | 'subprocess'
+  subprocess_path: string
   tls_enable: boolean
   tls_config: string
   pool_count: number | string
@@ -54,6 +56,9 @@ interface FormState {
   enabled: boolean
   auto_start: boolean
 }
+
+const probing = ref(false)
+const downloading = ref(false)
 
 const form = reactive<FormState>(emptyForm())
 
@@ -68,6 +73,7 @@ function emptyForm(): FormState {
     meta_token: '',
     user: '',
     driver_mode: 'embedded',
+    subprocess_path: '',
     tls_enable: true,
     tls_config: '',
     pool_count: 0,
@@ -106,6 +112,7 @@ function openEdit(ep: Endpoint) {
     meta_token: '',
     user: ep.user,
     driver_mode: ep.driver_mode || 'embedded',
+    subprocess_path: ep.subprocess_path || '',
     tls_enable: ep.tls_enable,
     tls_config: ep.tls_config,
     pool_count: ep.pool_count,
@@ -145,6 +152,7 @@ async function submit() {
       meta_token: form.meta_token,
       user: form.user.trim(),
       driver_mode: form.driver_mode,
+      subprocess_path: form.subprocess_path.trim(),
       tls_enable: form.tls_enable,
       tls_config: form.tls_config,
       pool_count: Number(form.pool_count) || 0,
@@ -166,6 +174,38 @@ async function submit() {
     Message.error(e?.response?.data?.error ?? t('msg.saveFailed'))
   } finally {
     submitting.value = false
+  }
+}
+
+async function probeBinary() {
+  probing.value = true
+  try {
+    const r = await probeFrpc(form.subprocess_path)
+    if (!form.subprocess_path) {
+      form.subprocess_path = r.path
+    }
+    if (r.compatible) {
+      Message.success(t('frpc.probe_ok', { version: r.version }))
+    } else {
+      Message.warning(t('frpc.probe_incompatible', { version: r.version, min: r.min_required }))
+    }
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? (e as Error).message)
+  } finally {
+    probing.value = false
+  }
+}
+
+async function downloadBinary() {
+  downloading.value = true
+  try {
+    const r = await downloadFrpc()
+    form.subprocess_path = r.path
+    Message.success(t('frpc.downloaded', { path: r.path }))
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? (e as Error).message)
+  } finally {
+    downloading.value = false
   }
 }
 
@@ -337,6 +377,20 @@ function endpointBadgeVariant(state: string): 'default' | 'secondary' | 'outline
                   <SelectItem value="subprocess">subprocess</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div v-if="form.driver_mode === 'subprocess'" class="flex flex-col gap-1.5 col-span-2">
+              <Label>{{ t('frpc.custom_path') }}</Label>
+              <Input v-model="form.subprocess_path" placeholder="/usr/local/bin/frpc" />
+              <span class="text-xs text-muted-foreground">{{ t('frpc.custom_path_hint') }}</span>
+              <div class="flex flex-wrap items-center gap-2 mt-1">
+                <Button type="button" size="sm" variant="outline" :disabled="probing" @click="probeBinary">
+                  {{ probing ? '…' : t('frpc.probe') }}
+                </Button>
+                <Button type="button" size="sm" variant="outline" :disabled="downloading" @click="downloadBinary">
+                  {{ downloading ? t('frpc.downloading') : t('frpc.download') }}
+                </Button>
+                <span class="text-xs text-muted-foreground">{{ t('frpc.download_hint') }}</span>
+              </div>
             </div>
             <div class="flex items-center gap-4 col-span-2">
               <div class="flex items-center gap-2">

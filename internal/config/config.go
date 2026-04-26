@@ -36,6 +36,12 @@ type Config struct {
 	RateLimitPerMinutePerIP int
 	JWTSecret               string
 
+	// InstanceName is a human-readable name embedded into remote
+	// management invitations so the receiving peer can label the new
+	// node without the operator typing the hostname twice. Empty falls
+	// back to "frpdeck-<port>" at invite time.
+	InstanceName string
+
 	// Login hardening (brute-force defence). All values are tunable via
 	// env vars; defaults target a balanced posture for a small self-hosted
 	// tool. Window and lockout durations are in minutes.
@@ -64,6 +70,7 @@ func Load() (*Config, error) {
 		MaxRulesPerIP:           envInt("FRPDECK_MAX_RULES_PER_IP", 20),
 		RateLimitPerMinutePerIP: envInt("FRPDECK_RATELIMIT_PER_MINUTE", 10),
 		JWTSecret:               envOr("FRPDECK_JWT_SECRET", ""),
+		InstanceName:            envOr("FRPDECK_INSTANCE_NAME", ""),
 
 		LoginFailMaxPerIP:      envInt("FRPDECK_LOGIN_FAIL_MAX_PER_IP", 10),
 		LoginFailWindowIPMin:   envInt("FRPDECK_LOGIN_FAIL_WINDOW_IP_MINUTES", 10),

@@ -159,6 +159,7 @@ func BuildVisitor(t *model.Tunnel) (v1.VisitorConfigurer, error) {
 		Name:       tunnelName(t),
 		Type:       typ,
 		ServerName: t.ServerName,
+		ServerUser: t.ServerUser,
 		SecretKey:  t.SK,
 		BindAddr:   t.LocalIP,
 		BindPort:   t.LocalPort,

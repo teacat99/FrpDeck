@@ -236,6 +236,47 @@ func (s *Store) DeleteTunnel(id uint) error {
 	return s.db.Delete(&model.Tunnel{}, id).Error
 }
 
+// ------------------------- remote nodes -------------------------
+
+// ListRemoteNodes returns every paired peer regardless of direction.
+// The UI splits them into "managed by me" / "manages me" tabs client side.
+func (s *Store) ListRemoteNodes() ([]model.RemoteNode, error) {
+	var out []model.RemoteNode
+	err := s.db.Order("id ASC").Find(&out).Error
+	return out, err
+}
+
+// GetRemoteNode returns nil (no error) when the row does not exist; the
+// auth/redeem path uses this distinction to surface a stable 401.
+func (s *Store) GetRemoteNode(id uint) (*model.RemoteNode, error) {
+	var n model.RemoteNode
+	if err := s.db.First(&n, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &n, nil
+}
+
+// CreateRemoteNode inserts a new pairing row.
+func (s *Store) CreateRemoteNode(n *model.RemoteNode) error {
+	return s.db.Create(n).Error
+}
+
+// UpdateRemoteNode persists the full entity (status / last_seen tracking).
+func (s *Store) UpdateRemoteNode(n *model.RemoteNode) error {
+	return s.db.Save(n).Error
+}
+
+// DeleteRemoteNode hard-deletes the pairing row. Callers are expected to
+// also delete or stop the associated stcp tunnel; the store does NOT do
+// that automatically because tunnel teardown requires a running driver
+// reference that the store does not own.
+func (s *Store) DeleteRemoteNode(id uint) error {
+	return s.db.Delete(&model.RemoteNode{}, id).Error
+}
+
 // ------------------------- users -------------------------
 
 func (s *Store) CreateUser(u *model.User) error {

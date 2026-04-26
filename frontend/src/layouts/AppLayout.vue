@@ -8,6 +8,8 @@ import {
   Network,
   History,
   Settings,
+  Share2,
+  Layers,
   LogOut,
   User as UserIcon,
   Lock,
@@ -103,6 +105,10 @@ const navItems = computed<NavItem[]>(() => {
     { key: 'history', label: t('menu.history'), icon: History }
   ]
   if (isAdmin.value) {
+    if (auth.mode === 'password') {
+      base.push({ key: 'remote', label: t('menu.remote'), icon: Share2 })
+    }
+    base.push({ key: 'profiles', label: t('menu.profiles'), icon: Layers })
     base.push({ key: 'settings', label: t('menu.settings'), icon: Settings })
   }
   return base

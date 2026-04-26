@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { authStatus, getMe, login as apiLogin, type LastLoginInfo, type LoginPayload } from '@/api/auth'
+import { exchangeMgmtToken } from '@/api/remote'
 import type { Me, Role } from '@/api/types'
 
 // useAuthStore centralises everything the UI needs about the current
@@ -52,6 +53,24 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchMe()
   }
 
+  // redeemMgmtToken swaps a management-token (issued by a peer FrpDeck
+  // through an invitation) for a regular session token on this
+  // instance. Used by the router guard when the URL carries
+  // ?_redeem=<mgmt_token> so the operator lands directly inside the
+  // peer's UI without a manual login round-trip.
+  async function redeemMgmtToken(mgmtToken: string) {
+    const resp = await exchangeMgmtToken(mgmtToken)
+    token.value = resp.token
+    localStorage.setItem('frpdeck.token', resp.token)
+    me.value = {
+      id: 0,
+      username: resp.username,
+      role: resp.role,
+      auth_mode: 'password'
+    }
+    await fetchMe()
+  }
+
   function logout() {
     token.value = ''
     me.value = null
@@ -66,5 +85,18 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  return { token, mode, required, me, lastLogin, isAdmin, role, refreshStatus, fetchMe, login, logout }
+  return {
+    token,
+    mode,
+    required,
+    me,
+    lastLogin,
+    isAdmin,
+    role,
+    refreshStatus,
+    fetchMe,
+    login,
+    redeemMgmtToken,
+    logout
+  }
 })

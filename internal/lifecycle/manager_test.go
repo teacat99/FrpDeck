@@ -262,3 +262,133 @@ func TestReconcileMarksExpired(t *testing.T) {
 		t.Fatalf("expected LastStopAt to be set")
 	}
 }
+
+// TestReconcileRemoteNodes_ExpiresInvite ensures pending RemoteNodes
+// whose InviteExpiry has passed are flipped to `expired` so the UI can
+// surface "this invitation timed out, generate a fresh one".
+func TestReconcileRemoteNodes_ExpiresInvite(t *testing.T) {
+	s := newTestStore(t)
+	drv := frpcd.NewMock()
+
+	past := time.Now().Add(-1 * time.Minute)
+	node := &model.RemoteNode{
+		Name:         "peer-a",
+		Direction:    "manages_me",
+		Status:       model.RemoteNodeStatusPending,
+		InviteExpiry: &past,
+	}
+	if err := s.CreateRemoteNode(node); err != nil {
+		t.Fatalf("CreateRemoteNode: %v", err)
+	}
+
+	m := New(s, drv, time.Hour, nil)
+	if err := m.ReconcileRemoteNodes(); err != nil {
+		t.Fatalf("ReconcileRemoteNodes: %v", err)
+	}
+	got, err := s.GetRemoteNode(node.ID)
+	if err != nil {
+		t.Fatalf("GetRemoteNode: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("node disappeared after reconcile")
+	}
+	if got.Status != model.RemoteNodeStatusExpired {
+		t.Fatalf("expected status=expired, got %q", got.Status)
+	}
+}
+
+// TestReconcileRemoteNodes_OfflineWhenTunnelDeleted ensures an active
+// pairing whose backing tunnel was removed out-of-band gets flipped to
+// `offline` so the UI does not keep advertising a dead pairing.
+func TestReconcileRemoteNodes_OfflineWhenTunnelDeleted(t *testing.T) {
+	s := newTestStore(t)
+	drv := frpcd.NewMock()
+
+	node := &model.RemoteNode{
+		Name:      "peer-b",
+		Direction: "managed_by_me",
+		Status:    model.RemoteNodeStatusActive,
+		TunnelID:  9999, // never existed
+	}
+	if err := s.CreateRemoteNode(node); err != nil {
+		t.Fatalf("CreateRemoteNode: %v", err)
+	}
+
+	m := New(s, drv, time.Hour, nil)
+	if err := m.ReconcileRemoteNodes(); err != nil {
+		t.Fatalf("ReconcileRemoteNodes: %v", err)
+	}
+	got, err := s.GetRemoteNode(node.ID)
+	if err != nil {
+		t.Fatalf("GetRemoteNode: %v", err)
+	}
+	if got.Status != model.RemoteNodeStatusOffline {
+		t.Fatalf("expected status=offline, got %q", got.Status)
+	}
+}
+
+// TestReconcileRemoteNodes_OfflineWhenTunnelFailed ensures a pairing
+// whose linked tunnel sat in `failed`/`expired`/`stopped` for any
+// reason is reflected as offline at the RemoteNode level.
+func TestReconcileRemoteNodes_OfflineWhenTunnelFailed(t *testing.T) {
+	s := newTestStore(t)
+	drv := frpcd.NewMock()
+
+	tu := seedActiveTunnel(t, s, nil)
+	tu.Status = model.StatusFailed
+	if err := s.UpdateTunnel(tu); err != nil {
+		t.Fatalf("UpdateTunnel: %v", err)
+	}
+
+	node := &model.RemoteNode{
+		Name:      "peer-c",
+		Direction: "manages_me",
+		Status:    model.RemoteNodeStatusActive,
+		TunnelID:  tu.ID,
+	}
+	if err := s.CreateRemoteNode(node); err != nil {
+		t.Fatalf("CreateRemoteNode: %v", err)
+	}
+
+	m := New(s, drv, time.Hour, nil)
+	if err := m.ReconcileRemoteNodes(); err != nil {
+		t.Fatalf("ReconcileRemoteNodes: %v", err)
+	}
+	got, err := s.GetRemoteNode(node.ID)
+	if err != nil {
+		t.Fatalf("GetRemoteNode: %v", err)
+	}
+	if got.Status != model.RemoteNodeStatusOffline {
+		t.Fatalf("expected status=offline, got %q", got.Status)
+	}
+}
+
+// TestReconcileRemoteNodes_NoChangeForHealthyActive guards against the
+// reaper accidentally flipping healthy pairings during a normal tick.
+func TestReconcileRemoteNodes_NoChangeForHealthyActive(t *testing.T) {
+	s := newTestStore(t)
+	drv := frpcd.NewMock()
+
+	tu := seedActiveTunnel(t, s, nil)
+	node := &model.RemoteNode{
+		Name:      "peer-d",
+		Direction: "managed_by_me",
+		Status:    model.RemoteNodeStatusActive,
+		TunnelID:  tu.ID,
+	}
+	if err := s.CreateRemoteNode(node); err != nil {
+		t.Fatalf("CreateRemoteNode: %v", err)
+	}
+
+	m := New(s, drv, time.Hour, nil)
+	if err := m.ReconcileRemoteNodes(); err != nil {
+		t.Fatalf("ReconcileRemoteNodes: %v", err)
+	}
+	got, err := s.GetRemoteNode(node.ID)
+	if err != nil {
+		t.Fatalf("GetRemoteNode: %v", err)
+	}
+	if got.Status != model.RemoteNodeStatusActive {
+		t.Fatalf("expected status=active, got %q", got.Status)
+	}
+}

@@ -5,7 +5,7 @@ import {
   Plus, RefreshCw, Pencil, Trash2, Play, Square,
   ChevronDown, ChevronRight, Clock, AlarmClockPlus, Infinity as InfinityIcon,
   Stethoscope, CircleCheck, CircleAlert, CircleX, MinusCircle, Loader2,
-  ServerCog, Copy, ExternalLink, LayoutTemplate,
+  ServerCog, Copy, ExternalLink, LayoutTemplate, Upload, AlertTriangle,
   // Template-icon set: each icon name in a YAML template must exist
   // in this whitelist; render falls back to LayoutTemplate otherwise.
   Globe, Lock, Monitor, TerminalSquare, Database, Network, Shield,
@@ -30,14 +30,18 @@ import {
   DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import EmptyState from '@/components/EmptyState.vue'
+import PluginConfigEditor from '@/components/PluginConfigEditor.vue'
 import { Message } from '@/lib/toast'
 import {
   listTunnels, createTunnel, updateTunnel, deleteTunnel,
   startTunnel, stopTunnel, renewTunnel, diagnoseTunnel,
   frpsAdvice, listTunnelTemplates,
+  importTunnelsPreview, importTunnelsCommit,
   type DiagReport, type DiagStatus,
   type FrpsAdvice, type AdviceItem, type AdviceSeverity,
   type TunnelTemplate,
+  type ImportPlan, type ImportCommitItem, type ImportCommitTunnel,
+  type ImportConflictStrategy,
 } from '@/api/tunnels'
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
@@ -538,6 +542,155 @@ function applyTemplate(tpl: TunnelTemplate) {
 // later ("how many users actually use the templates we ship?").
 const appliedTemplateId = ref<string>('')
 
+// ----- Import wizard (P5-E) -------------------------------------------
+// plan.md §15 requires the import flow to be dry-runnable so the
+// operator can review the parsed plan before we touch the database.
+// We keep two modes: `paste` (textarea) and `upload` (input[type=file])
+// — the latter is just a thin wrapper around the former.
+const importOpen = ref(false)
+const importContent = ref('')
+const importFilename = ref('')
+const importLoading = ref(false)
+const importPlan = ref<ImportPlan | null>(null)
+const importEndpointId = ref<number | null>(null)
+const importSelected = ref<Record<number, boolean>>({})
+const importOnConflict = ref<Record<number, ImportConflictStrategy>>({})
+const importDefaultOnConflict = ref<ImportConflictStrategy>('rename')
+const importCommitting = ref(false)
+const importResults = ref<ImportCommitItem[] | null>(null)
+
+function openImport() {
+  importOpen.value = true
+  importContent.value = ''
+  importFilename.value = ''
+  importPlan.value = null
+  importEndpointId.value = endpoints.value.length === 1 ? endpoints.value[0].id : null
+  importSelected.value = {}
+  importOnConflict.value = {}
+  importDefaultOnConflict.value = 'rename'
+  importResults.value = null
+}
+
+async function handleImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  importFilename.value = file.name
+  importContent.value = await file.text()
+  // Auto-trigger preview after upload — operators expect "drop the file
+  // and immediately see what would happen".
+  await runImportPreview()
+  input.value = ''
+}
+
+async function runImportPreview() {
+  if (!importContent.value.trim()) {
+    Message.error(t('tunnel.import.errors.empty'))
+    return
+  }
+  importLoading.value = true
+  importResults.value = null
+  try {
+    const plan = await importTunnelsPreview(
+      importContent.value,
+      importFilename.value,
+      importEndpointId.value ?? undefined,
+    )
+    importPlan.value = plan
+    // Default to selecting every tunnel; the operator can deselect any
+    // they don't want.
+    const selected: Record<number, boolean> = {}
+    const onConflict: Record<number, ImportConflictStrategy> = {}
+    plan.tunnels.forEach((tn, idx) => {
+      selected[idx] = true
+      if (tn.conflict) {
+        onConflict[idx] = importDefaultOnConflict.value
+      }
+    })
+    importSelected.value = selected
+    importOnConflict.value = onConflict
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
+    importPlan.value = null
+  } finally {
+    importLoading.value = false
+  }
+}
+
+// Re-runs the preview when the operator picks a target endpoint so the
+// backend can stamp `conflict` flags against the actual destination.
+async function onImportEndpointChange(value: any) {
+  importEndpointId.value = value ? Number(value) : null
+  if (importPlan.value) {
+    await runImportPreview()
+  }
+}
+
+async function commitImport() {
+  if (!importPlan.value) return
+  if (!importEndpointId.value) {
+    Message.error(t('tunnel.import.errors.endpoint_required'))
+    return
+  }
+  const selectedIdx = importPlan.value.tunnels
+    .map((_, idx) => idx)
+    .filter(idx => importSelected.value[idx] !== false)
+  if (!selectedIdx.length) {
+    Message.error(t('tunnel.import.errors.no_tunnels_selected'))
+    return
+  }
+  const tunnels: ImportCommitTunnel[] = selectedIdx.map(idx => {
+    const draft = importPlan.value!.tunnels[idx]
+    const out: ImportCommitTunnel = { ...draft }
+    if (draft.conflict) {
+      out.on_conflict = importOnConflict.value[idx] ?? importDefaultOnConflict.value
+    }
+    return out
+  })
+  importCommitting.value = true
+  try {
+    const items = await importTunnelsCommit(
+      importEndpointId.value,
+      tunnels,
+      importDefaultOnConflict.value,
+    )
+    // Map results back to the index space used by the preview list so
+    // the per-row badge keeps lining up after rename/skip resolution.
+    const aligned: ImportCommitItem[] = []
+    selectedIdx.forEach((origIdx, i) => {
+      aligned[origIdx] = items[i]
+    })
+    importResults.value = aligned
+    const ok = items.filter(i => i.id).length
+    const skipped = items.filter(i => i.skipped).length
+    const fail = items.filter(i => i.error).length
+    if (fail === 0 && skipped === 0) {
+      Message.success(t('tunnel.import.success', { ok }))
+    } else if (fail === 0 && skipped > 0) {
+      Message.warning(t('tunnel.import.partial_with_skip', { ok, skipped }))
+    } else if (ok === 0) {
+      Message.error(t('tunnel.import.partial_fail', { ok, fail }))
+    } else {
+      Message.warning(t('tunnel.import.partial', { ok, fail }))
+    }
+    if (ok > 0) {
+      await reload()
+    }
+  } catch (e: any) {
+    Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
+  } finally {
+    importCommitting.value = false
+  }
+}
+
+const importSelectedCount = computed(() => {
+  if (!importPlan.value) return 0
+  return importPlan.value.tunnels.reduce(
+    (acc, _, idx) => acc + (importSelected.value[idx] !== false ? 1 : 0),
+    0,
+  )
+})
+
 // renew issues a one-shot extension to the tunnel's expiry. The
 // backend reactivates expired rows in-place so the operator can
 // rescue a stale tunnel without re-creating it. extendSeconds=0 is
@@ -631,6 +784,15 @@ function liveStateLabel(tn: Tunnel): string | null {
         >
           <LayoutTemplate class="size-4" />
           <span>{{ t('template.wizard.action') }}</span>
+        </Button>
+        <Button
+          v-if="auth.isAdmin"
+          variant="outline"
+          :disabled="endpoints.length === 0"
+          @click="openImport"
+        >
+          <Upload class="size-4" />
+          <span>{{ t('tunnel.import.action') }}</span>
         </Button>
         <Button v-if="auth.isAdmin" :disabled="endpoints.length === 0" @click="openCreate">
           <Plus class="size-4" />
@@ -969,11 +1131,24 @@ function liveStateLabel(tn: Tunnel): string | null {
             </div>
             <div class="flex flex-col gap-1.5">
               <Label>{{ t('tunnel.field.plugin') }}</Label>
-              <Input v-model="form.plugin" placeholder="static_file / unix_domain_socket / …" />
+              <Select v-model="form.plugin">
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">—</SelectItem>
+                  <SelectItem value="static_file">static_file</SelectItem>
+                  <SelectItem value="unix_domain_socket">unix_domain_socket</SelectItem>
+                  <SelectItem value="http_proxy">http_proxy</SelectItem>
+                  <SelectItem value="socks5">socks5</SelectItem>
+                  <SelectItem value="https2http">https2http</SelectItem>
+                  <SelectItem value="https2https">https2https</SelectItem>
+                  <SelectItem value="http2https">http2https</SelectItem>
+                  <SelectItem value="tls2raw">tls2raw</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div class="flex flex-col gap-1.5 col-span-2">
               <Label>{{ t('tunnel.field.plugin_config') }}</Label>
-              <Input v-model="form.plugin_config" placeholder="local_path=/srv,strip_prefix=static" />
+              <PluginConfigEditor v-model="form.plugin_config" :plugin="form.plugin" />
             </div>
             <div class="flex items-center gap-4 col-span-2 mt-1">
               <div class="flex items-center gap-2">
@@ -1180,6 +1355,218 @@ function liveStateLabel(tn: Tunnel): string | null {
           >
             <RefreshCw class="size-4" :class="{ 'animate-spin': adviceLoading }" />
             <span>{{ t('common.refresh') }}</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Import frpc.toml (P5-E) -->
+    <Dialog v-model:open="importOpen">
+      <DialogContent class="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{{ t('tunnel.import.title') }}</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+          <p class="text-sm text-muted-foreground">{{ t('tunnel.import.subtitle') }}</p>
+
+          <!-- Step 1: paste/upload -->
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <Label class="text-xs">{{ t('tunnel.import.upload_label') }}</Label>
+              <input
+                type="file"
+                accept=".toml,.yaml,.yml,.json"
+                class="text-xs"
+                @change="handleImportFile"
+              />
+              <span v-if="importFilename" class="text-xs text-muted-foreground">{{ importFilename }}</span>
+            </div>
+            <Label class="text-xs">{{ t('tunnel.import.paste_label') }}</Label>
+            <textarea
+              v-model="importContent"
+              :placeholder="t('tunnel.import.placeholder')"
+              class="min-h-[140px] w-full rounded-md border bg-background p-2 text-xs font-mono"
+              spellcheck="false"
+            />
+            <div class="flex items-center gap-2">
+              <Button
+                size="sm"
+                :disabled="importLoading || !importContent.trim()"
+                @click="runImportPreview"
+              >
+                <Loader2 v-if="importLoading" class="size-4 animate-spin" />
+                <span>{{ t('tunnel.import.preview') }}</span>
+              </Button>
+              <span v-if="importPlan" class="text-xs text-muted-foreground">
+                {{ t('tunnel.import.parsed_format', { format: importPlan.format }) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Step 2: review plan -->
+          <div v-if="importPlan" class="flex flex-col gap-3">
+            <!-- File-level warnings -->
+            <div
+              v-if="importPlan.warnings && importPlan.warnings.length"
+              class="rounded-md border border-amber-300/50 bg-amber-50/40 dark:bg-amber-950/20 p-3"
+            >
+              <div class="flex items-center gap-1.5 text-xs font-medium mb-1.5">
+                <AlertTriangle class="size-3.5" />
+                <span>{{ t('tunnel.import.file_warnings') }}</span>
+              </div>
+              <ul class="list-disc list-inside text-xs text-muted-foreground flex flex-col gap-1">
+                <li v-for="(w, i) in importPlan.warnings" :key="i">{{ w }}</li>
+              </ul>
+            </div>
+
+            <!-- Endpoint summary + target picker -->
+            <div v-if="importPlan.endpoint" class="rounded-md border p-3 flex flex-col gap-2">
+              <div class="text-xs font-medium">{{ t('tunnel.import.endpoint_section') }}</div>
+              <div class="text-xs text-muted-foreground font-mono">
+                {{ importPlan.endpoint.addr }}:{{ importPlan.endpoint.port }}
+                <span v-if="importPlan.endpoint.protocol"> ({{ importPlan.endpoint.protocol }})</span>
+                <span v-if="importPlan.endpoint.user"> · user={{ importPlan.endpoint.user }}</span>
+                <span v-if="importPlan.endpoint.tls_enable"> · tls</span>
+                <span v-if="importPlan.endpoint.token"> · token=***</span>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <Label class="text-xs">{{ t('tunnel.import.target_endpoint') }}</Label>
+                <Select
+                  :model-value="importEndpointId ? String(importEndpointId) : ''"
+                  @update:model-value="onImportEndpointChange"
+                >
+                  <SelectTrigger class="h-8 text-xs w-[260px]">
+                    <SelectValue :placeholder="t('tunnel.import.target_endpoint_placeholder')" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="ep in endpoints"
+                      :key="ep.id"
+                      :value="String(ep.id)"
+                    >
+                      {{ ep.name }} — {{ ep.addr }}:{{ ep.port }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="text-[11px] text-muted-foreground">
+                {{ t('tunnel.import.target_endpoint_hint') }}
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <Label class="text-xs">{{ t('tunnel.import.default_conflict') }}</Label>
+                <Select
+                  :model-value="importDefaultOnConflict"
+                  @update:model-value="(v: any) => importDefaultOnConflict = v as ImportConflictStrategy"
+                >
+                  <SelectTrigger class="h-8 text-xs w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error">{{ t('tunnel.import.conflict.error') }}</SelectItem>
+                    <SelectItem value="rename">{{ t('tunnel.import.conflict.rename') }}</SelectItem>
+                    <SelectItem value="skip">{{ t('tunnel.import.conflict.skip') }}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <!-- Tunnels list -->
+            <div class="rounded-md border p-3 flex flex-col gap-2">
+              <div class="text-xs font-medium">
+                {{ t('tunnel.import.tunnels_section', { count: importPlan.tunnels.length, selected: importSelectedCount }) }}
+              </div>
+              <div v-if="!importPlan.tunnels.length" class="text-xs text-muted-foreground">
+                {{ t('tunnel.import.tunnels_empty') }}
+              </div>
+              <ul v-else class="flex flex-col gap-1.5">
+                <li
+                  v-for="(tn, idx) in importPlan.tunnels"
+                  :key="idx"
+                  class="rounded-md border p-2 flex items-start gap-2"
+                >
+                  <input
+                    type="checkbox"
+                    class="mt-1"
+                    :checked="importSelected[idx] !== false"
+                    @change="(e: Event) => importSelected[idx] = (e.target as HTMLInputElement).checked"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-medium text-sm truncate">{{ tn.name }}</span>
+                      <Badge variant="outline">{{ tn.type }}</Badge>
+                      <Badge v-if="tn.role === 'visitor'" variant="secondary">visitor</Badge>
+                      <Badge v-if="tn.conflict" variant="destructive">
+                        {{ t('tunnel.import.conflict.badge') }}
+                      </Badge>
+                      <Select
+                        v-if="tn.conflict && !importResults"
+                        :model-value="importOnConflict[idx] ?? importDefaultOnConflict"
+                        @update:model-value="(v: any) => importOnConflict[idx] = v as ImportConflictStrategy"
+                      >
+                        <SelectTrigger class="h-6 text-[10px] w-[120px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="error">{{ t('tunnel.import.conflict.error') }}</SelectItem>
+                          <SelectItem value="rename">{{ t('tunnel.import.conflict.rename') }}</SelectItem>
+                          <SelectItem value="skip">{{ t('tunnel.import.conflict.skip') }}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span
+                        v-if="importResults && importResults[idx]"
+                        class="text-[10px]"
+                        :class="importResults[idx].error
+                          ? 'text-destructive'
+                          : importResults[idx].skipped
+                            ? 'text-muted-foreground'
+                            : 'text-green-600'"
+                      >
+                        <template v-if="importResults[idx].error">
+                          {{ t('tunnel.import.row_failed') }}: {{ importResults[idx].error }}
+                        </template>
+                        <template v-else-if="importResults[idx].skipped">
+                          {{ t('tunnel.import.row_skipped') }}
+                        </template>
+                        <template v-else-if="importResults[idx].renamed">
+                          {{ t('tunnel.import.row_renamed', { name: importResults[idx].renamed }) }} (#{{ importResults[idx].id }})
+                        </template>
+                        <template v-else>
+                          {{ t('tunnel.import.row_ok') }} (#{{ importResults[idx].id }})
+                        </template>
+                      </span>
+                    </div>
+                    <div class="text-[11px] text-muted-foreground font-mono mt-0.5">
+                      <template v-if="tn.role !== 'visitor'">
+                        {{ tn.local_ip }}:{{ tn.local_port }}
+                        <template v-if="tn.remote_port"> → :{{ tn.remote_port }}</template>
+                        <template v-if="tn.custom_domains"> @ {{ tn.custom_domains }}</template>
+                        <template v-if="tn.subdomain"> @ {{ tn.subdomain }}.*</template>
+                      </template>
+                      <template v-else>
+                        bind {{ tn.local_ip }}:{{ tn.local_port }} → {{ tn.server_name }}
+                      </template>
+                      <template v-if="tn.plugin"> · plugin={{ tn.plugin }}</template>
+                    </div>
+                    <ul
+                      v-if="tn.warnings && tn.warnings.length"
+                      class="list-disc list-inside text-[11px] text-amber-600 dark:text-amber-400 mt-1"
+                    >
+                      <li v-for="(w, i) in tn.warnings" :key="i">{{ w }}</li>
+                    </ul>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="importOpen = false">{{ t('common.close') }}</Button>
+          <Button
+            :disabled="!importPlan || !importPlan.tunnels.length || importCommitting || importSelectedCount === 0"
+            @click="commitImport"
+          >
+            <Loader2 v-if="importCommitting" class="size-4 animate-spin" />
+            <span>{{ t('tunnel.import.commit', { count: importSelectedCount }) }}</span>
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -326,8 +326,71 @@ func (m *Manager) loop(ctx context.Context) {
 			if err := m.Reconcile(); err != nil {
 				log.Printf("[reconcile] %v", err)
 			}
+			if err := m.ReconcileRemoteNodes(); err != nil {
+				log.Printf("[reconcile-remote] %v", err)
+			}
 		}
 	}
+}
+
+// ReconcileRemoteNodes walks every RemoteNode row and brings its status
+// in line with reality:
+//
+//  1. `pending` rows whose InviteExpiry has passed without redemption
+//     are flipped to `expired`. The operator must regenerate.
+//  2. `active` rows whose backing tunnel was deleted out of band (or
+//     never existed) are flipped to `offline`; revoke() already deletes
+//     the tunnel + flips status itself, but a manual delete on the
+//     Tunnels page leaves the RemoteNode behind so we adopt it here.
+//  3. `active` rows whose backing tunnel sits in `failed` / `expired`
+//     status are flipped to `offline` so the operator can spot dead
+//     pairings without staring at the Tunnels list.
+//
+// The function is idempotent: nothing happens when every row already
+// matches reality, so the 30s loop is cheap.
+func (m *Manager) ReconcileRemoteNodes() error {
+	if m.store == nil {
+		return nil
+	}
+	nodes, err := m.store.ListRemoteNodes()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for i := range nodes {
+		n := &nodes[i]
+		nextStatus := n.Status
+		switch n.Status {
+		case model.RemoteNodeStatusPending:
+			if n.InviteExpiry != nil && now.After(*n.InviteExpiry) {
+				nextStatus = model.RemoteNodeStatusExpired
+			}
+		case model.RemoteNodeStatusActive:
+			if n.TunnelID == 0 {
+				nextStatus = model.RemoteNodeStatusOffline
+				break
+			}
+			t, err := m.store.GetTunnel(n.TunnelID)
+			if err != nil {
+				log.Printf("[reconcile-remote] node %d tunnel lookup: %v", n.ID, err)
+				continue
+			}
+			if t == nil {
+				nextStatus = model.RemoteNodeStatusOffline
+				break
+			}
+			if t.Status == model.StatusFailed || t.Status == model.StatusExpired || t.Status == model.StatusStopped {
+				nextStatus = model.RemoteNodeStatusOffline
+			}
+		}
+		if nextStatus != n.Status {
+			n.Status = nextStatus
+			if err := m.store.UpdateRemoteNode(n); err != nil {
+				log.Printf("[reconcile-remote] update node %d: %v", n.ID, err)
+			}
+		}
+	}
+	return nil
 }
 
 // armTimer schedules both the hard expiry timer and (when a threshold

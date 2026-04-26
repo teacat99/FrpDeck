@@ -78,18 +78,26 @@ type FrpDriver interface {
 	PublishEvent(Event)
 }
 
-// NewDriver picks the driver implementation by name. Unknown names
-// fall back to the mock so a misconfigured deployment is degraded but
-// never panics on boot.
-func NewDriver(name string) (FrpDriver, error) {
+// DriverOptions carries the cross-cutting bits of context that some
+// driver kinds need at construction time. Embedded ignores the options;
+// SubprocessDriver requires DataDir to compute the per-endpoint runtime
+// directory.
+type DriverOptions struct {
+	DataDir string
+}
+
+// NewDriver picks the driver implementation by name. Unknown names fall
+// back to the mock so a misconfigured deployment is degraded but never
+// panics on boot. Callers who don't need to pass options can use
+// `DriverOptions{}` — Embedded and Mock ignore the field.
+func NewDriver(name string, opts DriverOptions) (FrpDriver, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "mock":
 		return NewMock(), nil
 	case "embedded":
 		return NewEmbedded(), nil
 	case "subprocess":
-		// TODO(P8): wire SubprocessDriver against an external frpc binary.
-		return NewMock(), nil
+		return NewSubprocess(opts.DataDir), nil
 	}
 	return nil, fmt.Errorf("unknown frpcd driver %q", name)
 }
