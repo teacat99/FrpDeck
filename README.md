@@ -58,7 +58,42 @@ FrpDeck 是一个 **frp 客户端管理器**，目标用户是自托管 / 个人
 
 ## 快速开始
 
-🚧 待 P1 完成后补充。
+### Docker / NAS（推荐，v0.1.x 已可用）
+
+```bash
+docker run -d --name frpdeck \
+  -p 8080:8080 \
+  -v frpdeck-data:/data \
+  -e FRPDECK_ADMIN_PASSWORD='请改成强密码' \
+  --restart unless-stopped \
+  ghcr.io/teacat99/frpdeck:latest
+```
+
+打开 `http://<host>:8080`，用 `admin` + 上面密码登录后立即在 UI 改密码。
+
+群晖 Container Manager / 飞牛 OS / 反代 + HTTPS 的完整部署流程见
+[`deploy/README.md`](./deploy/README.md)。镜像同时发布到
+`ghcr.io/teacat99/frpdeck` 与 `teacat99/frpdeck`，多 arch（amd64 + arm64）。
+
+### Linux systemd（v0.1.x 已可用）
+
+```bash
+# 1. 拿到 release 下载或 docker cp 出来的二进制
+sudo /usr/local/bin/frpdeck-server install \
+  --listen :8080 \
+  --admin-username admin \
+  --admin-password '请改成强密码' \
+  --auth-mode password
+sudo systemctl enable --now frpdeck
+sudo systemctl status frpdeck
+```
+
+服务相关子命令：`install / uninstall / start / stop / restart / status / version`。
+
+### Windows / macOS 桌面 GUI（Wails，v0.1.1 polish 中）
+
+🚧 P1-D 代码已完成（headless / 系统服务路径已稳定），桌面 GUI 真机验收 + macOS 托盘
+（NSStatusItem 重写）进入 v0.1.1 polish。当前可以用 `wails build` 自行构建尝鲜。
 
 ## 与 PortPass 的关系
 

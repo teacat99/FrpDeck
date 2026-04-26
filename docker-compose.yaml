@@ -3,25 +3,55 @@
 # Notes:
 #   - FrpDeck only opens *outbound* TCP/UDP to the configured frps servers,
 #     so a regular bridge network is enough; no NET_ADMIN, no host networking.
-#   - Data volume holds the SQLite store (endpoints, tunnels, audit logs);
-#     back it up.
+#   - The data volume holds the SQLite store (endpoints, tunnels, audit
+#     logs, JWT secret) — back it up to preserve credentials.
+#   - The image already declares HEALTHCHECK against /api/version; the
+#     compose-level block below mirrors it so external tools that read
+#     compose configs (Portainer, Synology Container Manager) still see
+#     the policy.
 services:
   frpdeck:
     image: ghcr.io/teacat99/frpdeck:latest
     container_name: frpdeck
     restart: unless-stopped
     ports:
+      # Map host:container; change the *host* side if 8080 is taken.
       - "8080:8080"
     volumes:
+      # Preferred: bind mount inside the compose project so backups are
+      # one-line `cp -a ./data ...`. Switch to a named volume if your
+      # NAS prefers managed volumes.
       - ./data:/data
     environment:
       FRPDECK_LISTEN: ":8080"
       FRPDECK_AUTH_MODE: "password"
+      # CHANGE THIS — first login uses {admin / FRPDECK_ADMIN_PASSWORD}.
+      # Rotate via the UI afterwards; the env var is only the seed value.
       FRPDECK_ADMIN_PASSWORD: "change-me"
       FRPDECK_FRPCD_DRIVER: "embedded"
-      # FRPDECK_JWT_SECRET: ""         # leave blank to rotate on each restart
-      # FRPDECK_ADMIN_IP_WHITELIST: "" # e.g. "10.0.0.0/8,192.168.0.0/16"
-      # FRPDECK_TRUSTED_PROXIES: ""    # when behind a reverse proxy
+      # Leave blank to auto-rotate JWT secret each restart (forces
+      # re-login). Set a stable 32-byte hex value to keep sessions
+      # across restarts:
+      #   openssl rand -hex 32
+      # FRPDECK_JWT_SECRET: ""
+      # Restrict admin actions to specific networks; comma-separated CIDRs.
+      # FRPDECK_ADMIN_IP_WHITELIST: "10.0.0.0/8,192.168.0.0/16"
+      # When behind a reverse proxy that sets X-Forwarded-For, list its IPs:
+      # FRPDECK_TRUSTED_PROXIES: "172.18.0.0/16"
+      # Audit log retention; older rows pruned at midnight UTC.
       FRPDECK_HISTORY_RETENTION_DAYS: "30"
+      # Login throttling per source IP per minute.
       FRPDECK_RATELIMIT_PER_MINUTE: "10"
       TZ: "Asia/Shanghai"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/api/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Defence-in-depth: FrpDeck only needs to bind a TCP port, write to
+    # /data, and dial outbound; nothing here requires extra capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
