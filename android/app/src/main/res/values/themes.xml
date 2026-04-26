@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme.Material3.DynamicColors stays in code (Compose) so we keep
+         the XML theme minimal: it only matters during the splash flash
+         before Compose paints. -->
+    <style name="Theme.FrpDeck" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FF1F2937</item>
+        <item name="android:statusBarColor">#FF1F2937</item>
+    </style>
+</resources>

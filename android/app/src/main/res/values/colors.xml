@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="frpdeck_bg">#FF1F2937</color>
+    <color name="frpdeck_accent">#FF7C3AED</color>
+    <color name="frpdeck_text">#FFFAFAFA</color>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto-backup is disabled at the application level (allowBackup=false
+     in the manifest). This file is kept as a placeholder so the build
+     does not warn about a missing reference. -->
+<full-backup-content>
+    <exclude domain="root" />
+</full-backup-content>

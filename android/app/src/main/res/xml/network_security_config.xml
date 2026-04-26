@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WebView and Retrofit access to the embedded server need cleartext
+     HTTP on loopback. Locking the rule to 127.0.0.1 keeps everything
+     else (frpc dial-out included) on default secure-by-default policy. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
