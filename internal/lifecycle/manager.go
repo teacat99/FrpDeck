@@ -79,12 +79,13 @@ func (m *Manager) Stop() {
 	}
 }
 
-// Schedule registers an expiration timer for a temporary tunnel. Tunnels
-// without ExpireAt are no-ops — they live forever unless stopped manually.
-// Driver-side activation happens via AddTunnel / Start in P1; P0 just
-// books the timer so the lifecycle plumbing is exercised.
+// Schedule registers an expiration timer for a temporary tunnel. When
+// ExpireAt is cleared (e.g. user toggled the tunnel back to "永久") the
+// helper actively cancels any pre-existing timer so a stale callback
+// can never fire and silently kill a permanent tunnel.
 func (m *Manager) Schedule(t *model.Tunnel) error {
 	if t.ExpireAt == nil {
+		m.cancelTimer(t.ID)
 		return nil
 	}
 	m.armTimer(t.ID, time.Until(*t.ExpireAt))
@@ -102,10 +103,13 @@ func (m *Manager) Extend(t *model.Tunnel, newExpire time.Time) error {
 	return nil
 }
 
-// Stop terminates a tunnel ahead of schedule (UI "立即停止"). Driver-side
-// teardown is a P1 follow-up; for P0 we only update the persisted state.
+// Stop terminates a tunnel ahead of schedule (UI "立即停止"). The driver
+// is asked to remove the proxy first; persisted state is then flipped to
+// "stopped" regardless of driver outcome — the next reconcile catches
+// any drift if the driver call failed transiently.
 func (m *Manager) StopTunnel(t *model.Tunnel) error {
 	m.cancelTimer(t.ID)
+	m.removeFromDriver(t)
 	now := time.Now()
 	t.Status = model.StatusStopped
 	t.LastStopAt = &now
@@ -115,8 +119,15 @@ func (m *Manager) StopTunnel(t *model.Tunnel) error {
 // Reconcile is exported so tests and the HTTP /api/health probe can
 // trigger a forced pass. Safe to call concurrently with Schedule/Stop.
 //
-// P0 implementation only handles expired-but-still-active tunnels; the
-// driver-side reconciliation (frpc proxy list ↔ DB) is P1.
+// Behaviour:
+//
+//  1. Expired-but-still-active tunnels are flipped to `expired` and have
+//     their proxy removed from the driver.
+//  2. Still-active tunnels with a future ExpireAt have their timer rearmed
+//     (covers process restarts losing in-memory timers).
+//  3. Still-active tunnels are pushed into the driver — the driver state
+//     is volatile (lives in process memory) so a restart of the FrpDeck
+//     process needs to re-register every running tunnel with the engine.
 func (m *Manager) Reconcile() error {
 	active, err := m.store.ListActiveTunnels()
 	if err != nil {
@@ -127,6 +138,7 @@ func (m *Manager) Reconcile() error {
 		t := &active[i]
 		if t.ExpireAt != nil && !t.ExpireAt.After(now) {
 			m.cancelTimer(t.ID)
+			m.removeFromDriver(t)
 			t.Status = model.StatusExpired
 			stoppedAt := now
 			t.LastStopAt = &stoppedAt
@@ -135,6 +147,7 @@ func (m *Manager) Reconcile() error {
 			}
 			continue
 		}
+		m.pushToDriver(t)
 		if t.ExpireAt != nil {
 			m.armTimer(t.ID, time.Until(*t.ExpireAt))
 		}
@@ -188,6 +201,7 @@ func (m *Manager) onExpire(tunnelID uint) {
 	if t.Status != model.StatusActive && t.Status != model.StatusPending {
 		return
 	}
+	m.removeFromDriver(t)
 	now := time.Now()
 	t.Status = model.StatusExpired
 	t.LastStopAt = &now
@@ -197,4 +211,35 @@ func (m *Manager) onExpire(tunnelID uint) {
 	m.mu.Lock()
 	delete(m.timers, tunnelID)
 	m.mu.Unlock()
+}
+
+// pushToDriver looks up the tunnel's endpoint and re-registers the proxy
+// with the live engine. Failures are logged and swallowed; the periodic
+// reconcile retries on its own cadence.
+func (m *Manager) pushToDriver(t *model.Tunnel) {
+	if m.driver == nil {
+		return
+	}
+	ep, err := m.store.GetEndpoint(t.EndpointID)
+	if err != nil || ep == nil || !ep.Enabled {
+		return
+	}
+	if err := m.driver.AddTunnel(ep, t); err != nil {
+		log.Printf("[reconcile] driver add tunnel %d: %v", t.ID, err)
+	}
+}
+
+// removeFromDriver is the symmetric helper for proxy teardown. Same
+// best-effort policy as pushToDriver.
+func (m *Manager) removeFromDriver(t *model.Tunnel) {
+	if m.driver == nil {
+		return
+	}
+	ep, err := m.store.GetEndpoint(t.EndpointID)
+	if err != nil || ep == nil {
+		return
+	}
+	if err := m.driver.RemoveTunnel(ep, t); err != nil {
+		log.Printf("[lifecycle] driver remove tunnel %d: %v", t.ID, err)
+	}
 }

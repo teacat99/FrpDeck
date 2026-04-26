@@ -61,9 +61,14 @@ type FrpDriver interface {
 	Stop(ctx context.Context, ep *model.Endpoint) error
 	AddTunnel(ep *model.Endpoint, t *model.Tunnel) error
 	RemoveTunnel(ep *model.Endpoint, t *model.Tunnel) error
+	UpdateTunnel(ep *model.Endpoint, t *model.Tunnel) error
 	GetEndpointStatus(ep *model.Endpoint) (*EndpointStatus, error)
 	GetTunnelStatus(ep *model.Endpoint, t *model.Tunnel) (*TunnelStatus, error)
 	Logs(ep *model.Endpoint, n int) ([]LogEntry, error)
+	// Subscribe returns a channel that fires on every async event the
+	// driver wants to surface (status transitions, log lines). The cancel
+	// closure unregisters the subscriber and closes the channel.
+	Subscribe() (<-chan Event, func())
 }
 
 // NewDriver picks the driver implementation by name. Unknown names
@@ -74,8 +79,7 @@ func NewDriver(name string) (FrpDriver, error) {
 	case "", "mock":
 		return NewMock(), nil
 	case "embedded":
-		// TODO(P1): wire EmbeddedDriver against `github.com/fatedier/frp/client`.
-		return NewMock(), nil
+		return NewEmbedded(), nil
 	case "subprocess":
 		// TODO(P8): wire SubprocessDriver against an external frpc binary.
 		return NewMock(), nil

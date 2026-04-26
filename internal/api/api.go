@@ -209,16 +209,17 @@ func (s *Server) handleCreateEndpoint(c *gin.Context) {
 	if !s.ensureAdmin(c) {
 		return
 	}
-	var e model.Endpoint
-	if err := c.ShouldBindJSON(&e); err != nil {
+	var req endpointReq
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if e.Name == "" || e.Addr == "" || e.Port <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name, addr, port required"})
+	if err := req.validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	e.ID = 0
+	var e model.Endpoint
+	req.applyToEndpoint(&e, nil)
 	if err := s.store.CreateEndpoint(&e); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -249,13 +250,17 @@ func (s *Server) handleUpdateEndpoint(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
 		return
 	}
-	var patch model.Endpoint
-	if err := c.ShouldBindJSON(&patch); err != nil {
+	var req endpointReq
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	patch.ID = existing.ID
-	patch.CreatedAt = existing.CreatedAt
+	if err := req.validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	patch := *existing
+	req.applyToEndpoint(&patch, existing)
 	if err := s.store.UpdateEndpoint(&patch); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -276,6 +281,9 @@ func (s *Server) handleDeleteEndpoint(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if ep, err := s.store.GetEndpoint(id); err == nil && ep != nil {
+		_ = s.driver.Stop(c.Request.Context(), ep)
 	}
 	if err := s.store.DeleteEndpoint(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -335,29 +343,26 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 	if !s.ensureAdmin(c) {
 		return
 	}
-	var t model.Tunnel
-	if err := c.ShouldBindJSON(&t); err != nil {
+	var req tunnelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if t.EndpointID == 0 || t.Name == "" || t.Type == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint_id, name, type required"})
+	if err := req.validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if ep, err := s.store.GetEndpoint(t.EndpointID); err != nil {
+	if ep, err := s.store.GetEndpoint(req.EndpointID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	} else if ep == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint not found"})
 		return
 	}
-	t.ID = 0
-	if t.Status == "" {
-		t.Status = model.StatusPending
-	}
-	if t.Source == "" {
-		t.Source = model.TunnelSourceManual
-	}
+	var t model.Tunnel
+	req.applyToTunnel(&t, nil)
+	t.Status = model.StatusPending
+	t.Source = model.TunnelSourceManual
 	uid, _, _ := auth.Principal(c)
 	t.CreatedBy = uid
 	if err := s.store.CreateTunnel(&t); err != nil {
@@ -394,17 +399,35 @@ func (s *Server) handleUpdateTunnel(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
 		return
 	}
-	var patch model.Tunnel
-	if err := c.ShouldBindJSON(&patch); err != nil {
+	var req tunnelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	patch.ID = existing.ID
-	patch.CreatedAt = existing.CreatedAt
-	patch.CreatedBy = existing.CreatedBy
+	if err := req.validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	patch := *existing
+	req.applyToTunnel(&patch, existing)
 	if err := s.store.UpdateTunnel(&patch); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	// Reschedule the lifecycle in case ExpireAt or Enabled flipped.
+	if err := s.lifecycle.Schedule(&patch); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// If the tunnel is currently active, push the refreshed config to the
+	// live engine so the operator does not have to manually stop/start.
+	if patch.Status == model.StatusActive {
+		if err := s.pushTunnelToDriver(&patch); err != nil {
+			// Persisted change stays; surface the driver error so the UI
+			// can flag the row as needing a restart.
+			c.JSON(http.StatusOK, gin.H{"tunnel": patch, "driver_warning": err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, patch)
 }
@@ -418,6 +441,9 @@ func (s *Server) handleDeleteTunnel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if t, err := s.store.GetTunnel(id); err == nil && t != nil {
+		_ = s.removeTunnelFromDriver(t)
+	}
 	if err := s.store.DeleteTunnel(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -425,8 +451,8 @@ func (s *Server) handleDeleteTunnel(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// handleStartTunnel marks the tunnel active and arms its expiry timer.
-// P0 only flips the persisted status; P1 wires the actual driver call.
+// handleStartTunnel marks the tunnel active, registers it with the live
+// frp engine via the driver, and arms its expiry timer.
 func (s *Server) handleStartTunnel(c *gin.Context) {
 	if !s.ensureAdmin(c) {
 		return
@@ -441,9 +467,14 @@ func (s *Server) handleStartTunnel(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
 		return
 	}
+	if err := s.pushTunnelToDriver(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	now := time.Now()
 	t.Status = model.StatusActive
 	t.LastStartAt = &now
+	t.LastError = ""
 	if err := s.store.UpdateTunnel(t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -469,11 +500,41 @@ func (s *Server) handleStopTunnel(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
 		return
 	}
+	_ = s.removeTunnelFromDriver(t)
 	if err := s.lifecycle.StopTunnel(t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, t)
+}
+
+// pushTunnelToDriver looks up the endpoint and registers/refreshes the
+// tunnel on the running frp engine. Returns an error if the endpoint is
+// missing or disabled — the caller should not flip the persisted status
+// to "active" in that case.
+func (s *Server) pushTunnelToDriver(t *model.Tunnel) error {
+	ep, err := s.store.GetEndpoint(t.EndpointID)
+	if err != nil {
+		return err
+	}
+	if ep == nil {
+		return errors.New("endpoint not found")
+	}
+	if !ep.Enabled {
+		return errors.New("endpoint disabled")
+	}
+	return s.driver.AddTunnel(ep, t)
+}
+
+// removeTunnelFromDriver unregisters a tunnel from its endpoint runner.
+// Best-effort: a missing endpoint or driver error is swallowed because
+// the persisted state is already moving to "stopped".
+func (s *Server) removeTunnelFromDriver(t *model.Tunnel) error {
+	ep, err := s.store.GetEndpoint(t.EndpointID)
+	if err != nil || ep == nil {
+		return nil
+	}
+	return s.driver.RemoveTunnel(ep, t)
 }
 
 // ------------------------- settings -------------------------

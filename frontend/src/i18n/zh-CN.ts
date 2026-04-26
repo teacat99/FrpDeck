@@ -127,6 +127,8 @@ export default {
     required: '名称、地址必填',
     invalid_port: '端口需在 1-65535 之间',
     confirm_delete: '确定要删除服务端 {name} 及其下所有隧道吗？',
+    advanced: '高级',
+    advanced_hide: '收起',
     field: {
       name: '名称',
       group: '分组',
@@ -135,8 +137,17 @@ export default {
       protocol: '协议',
       token: '鉴权 Token',
       token_keep: '留空表示保留原值',
+      meta_token: '附加 Token',
+      meta_token_hint: '可选，用于多用户元数据',
       user: '用户名',
       driver: '驱动',
+      tls_enable: '启用 TLS',
+      tls_enable_hint: 'frp 默认对接 frps 时启用 TLS',
+      tls_config: 'TLS 配置（PEM 路径或内容）',
+      pool_count: '连接池大小',
+      pool_count_hint: '为 0 表示按需建立连接',
+      heartbeat_interval: '心跳间隔（秒）',
+      heartbeat_timeout: '心跳超时（秒）',
       enabled: '启用',
       auto_start: '随启动'
     }
@@ -155,6 +166,33 @@ export default {
     confirm_delete: '确定要删除隧道 {name} 吗？',
     started: '隧道已启动',
     stopped: '隧道已停止',
+    advanced: '高级',
+    advanced_hide: '收起',
+    section: {
+      basic: '基础',
+      proxy: 'Proxy（公网入口）',
+      http: 'HTTP / HTTPS',
+      secret: 'STCP / XTCP / SUDP',
+      visitor: 'Visitor（拨号端）',
+      lifecycle: '生命周期',
+      advanced: '高级'
+    },
+    role: {
+      label: '角色',
+      server: 'Server（被访问端）',
+      visitor: 'Visitor（拨号端）'
+    },
+    expire: {
+      label: '过期时间',
+      hint: '到期后 FrpDeck 会自动停止此隧道',
+      forever: '永久',
+      cleared: '已清除过期时间',
+      preset_2h: '+2 小时',
+      preset_1d: '+1 天',
+      preset_7d: '+7 天',
+      remaining: '剩余 {value}',
+      expired: '已过期'
+    },
     status: {
       pending: '待启动',
       active: '运行中',
@@ -162,17 +200,48 @@ export default {
       stopped: '已停止',
       failed: '失败'
     },
+    validation: {
+      type_required: '请选择隧道类型',
+      visitor_only_for_secret: 'Visitor 仅支持 stcp / xtcp / sudp',
+      sk_required: '需要填写 SK',
+      server_name_required: '请填写 Server 名称',
+      domains_required: 'HTTP/HTTPS 需要至少一个 subdomain 或 custom_domains',
+      port_range: '端口需在 0-65535 之间',
+      expire_in_past: '过期时间需为未来时刻'
+    },
     field: {
       name: '名称',
       endpoint: '所属服务端',
       type: '类型',
       target: '本地 → 远端',
       status: '状态',
+      expire: '到期',
       local_ip: '本地 IP',
       local_port: '本地端口',
       remote_port: '远端端口',
       subdomain: '子域名',
-      custom_domains: '自定义域名（逗号分隔）'
+      custom_domains: '自定义域名（逗号分隔）',
+      locations: 'URL 路径（逗号分隔）',
+      http_user: 'HTTP 用户名',
+      http_password: 'HTTP 密码',
+      http_password_keep: '留空保持不变',
+      host_header_rewrite: 'Host Header 重写',
+      sk: 'SK 共享密钥',
+      sk_keep: '留空保持不变',
+      allow_users: '允许的访客用户（逗号分隔，* 为全部）',
+      server_name: '目标 Server 名称',
+      encryption: '加密',
+      compression: '压缩',
+      bandwidth_limit: '带宽限制',
+      bandwidth_limit_hint: '例如 1MB、512KB',
+      group: '负载分组',
+      group_key: '分组密钥',
+      health_check_type: '健康检查类型',
+      health_check_url: '健康检查 URL',
+      plugin: '插件',
+      plugin_config: '插件参数（key=val,key=val）',
+      enabled: '启用',
+      auto_start: '随启动'
     }
   },
   history: {

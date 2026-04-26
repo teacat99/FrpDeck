@@ -127,6 +127,8 @@ export default {
     required: 'Name and address are required',
     invalid_port: 'Port must be between 1 and 65535',
     confirm_delete: 'Delete endpoint {name} and every tunnel under it?',
+    advanced: 'Advanced',
+    advanced_hide: 'Hide',
     field: {
       name: 'Name',
       group: 'Group',
@@ -135,8 +137,17 @@ export default {
       protocol: 'Protocol',
       token: 'Auth token',
       token_keep: 'Leave blank to keep the existing value',
+      meta_token: 'Meta token',
+      meta_token_hint: 'Optional, used for multi-user metadata',
       user: 'Username',
       driver: 'Driver',
+      tls_enable: 'Enable TLS',
+      tls_enable_hint: 'frpc enables TLS by default when talking to frps',
+      tls_config: 'TLS config (PEM path or content)',
+      pool_count: 'Pool count',
+      pool_count_hint: '0 means open connections on demand',
+      heartbeat_interval: 'Heartbeat interval (s)',
+      heartbeat_timeout: 'Heartbeat timeout (s)',
       enabled: 'Enabled',
       auto_start: 'Auto start'
     }
@@ -155,6 +166,33 @@ export default {
     confirm_delete: 'Delete tunnel {name}?',
     started: 'Tunnel started',
     stopped: 'Tunnel stopped',
+    advanced: 'Advanced',
+    advanced_hide: 'Hide',
+    section: {
+      basic: 'Basic',
+      proxy: 'Proxy (public ingress)',
+      http: 'HTTP / HTTPS',
+      secret: 'STCP / XTCP / SUDP',
+      visitor: 'Visitor (dialer)',
+      lifecycle: 'Lifecycle',
+      advanced: 'Advanced'
+    },
+    role: {
+      label: 'Role',
+      server: 'Server (exposed side)',
+      visitor: 'Visitor (dialer)'
+    },
+    expire: {
+      label: 'Expires at',
+      hint: 'FrpDeck stops this tunnel automatically once it expires',
+      forever: 'Never',
+      cleared: 'Expiry cleared',
+      preset_2h: '+2 hours',
+      preset_1d: '+1 day',
+      preset_7d: '+7 days',
+      remaining: '{value} left',
+      expired: 'Expired'
+    },
     status: {
       pending: 'Pending',
       active: 'Active',
@@ -162,17 +200,48 @@ export default {
       stopped: 'Stopped',
       failed: 'Failed'
     },
+    validation: {
+      type_required: 'Pick a tunnel type',
+      visitor_only_for_secret: 'Visitor is only valid for stcp / xtcp / sudp',
+      sk_required: 'SK is required',
+      server_name_required: 'Server name is required',
+      domains_required: 'HTTP/HTTPS needs at least a subdomain or custom_domains',
+      port_range: 'Port must be between 0 and 65535',
+      expire_in_past: 'Expiry must be in the future'
+    },
     field: {
       name: 'Name',
       endpoint: 'Endpoint',
       type: 'Type',
       target: 'local → remote',
       status: 'Status',
+      expire: 'Expires',
       local_ip: 'Local IP',
       local_port: 'Local port',
       remote_port: 'Remote port',
       subdomain: 'Subdomain',
-      custom_domains: 'Custom domains (comma-separated)'
+      custom_domains: 'Custom domains (comma-separated)',
+      locations: 'URL locations (comma-separated)',
+      http_user: 'HTTP user',
+      http_password: 'HTTP password',
+      http_password_keep: 'Leave blank to keep existing',
+      host_header_rewrite: 'Host header rewrite',
+      sk: 'Shared secret (SK)',
+      sk_keep: 'Leave blank to keep existing',
+      allow_users: 'Allowed visitor users (comma-separated, * for all)',
+      server_name: 'Target server name',
+      encryption: 'Encryption',
+      compression: 'Compression',
+      bandwidth_limit: 'Bandwidth limit',
+      bandwidth_limit_hint: 'e.g. 1MB, 512KB',
+      group: 'Load-balance group',
+      group_key: 'Group key',
+      health_check_type: 'Health-check type',
+      health_check_url: 'Health-check URL',
+      plugin: 'Plugin',
+      plugin_config: 'Plugin params (key=val,key=val)',
+      enabled: 'Enabled',
+      auto_start: 'Auto start'
     }
   },
   history: {

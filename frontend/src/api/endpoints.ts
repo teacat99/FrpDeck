@@ -1,5 +1,5 @@
 import client from './client'
-import type { Endpoint, VersionInfo } from './types'
+import type { Endpoint, EndpointWrite, VersionInfo } from './types'
 
 export async function listEndpoints(): Promise<Endpoint[]> {
   const { data } = await client.get<{ endpoints: Endpoint[] }>('/endpoints')
@@ -11,12 +11,7 @@ export async function getEndpoint(id: number): Promise<Endpoint> {
   return data
 }
 
-export type EndpointPayload = Partial<Endpoint> & {
-  name: string
-  addr: string
-  port: number
-  token?: string
-}
+export type EndpointPayload = EndpointWrite
 
 export async function createEndpoint(payload: EndpointPayload): Promise<Endpoint> {
   const { data } = await client.post<Endpoint>('/endpoints', payload)

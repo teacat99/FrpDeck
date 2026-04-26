@@ -1,5 +1,5 @@
 import client from './client'
-import type { Tunnel } from './types'
+import type { Tunnel, TunnelWrite } from './types'
 
 export async function listTunnels(endpointId?: number): Promise<Tunnel[]> {
   const params = endpointId ? { endpoint_id: endpointId } : undefined
@@ -12,11 +12,7 @@ export async function getTunnel(id: number): Promise<Tunnel> {
   return data
 }
 
-export type TunnelPayload = Partial<Tunnel> & {
-  endpoint_id: number
-  name: string
-  type: string
-}
+export type TunnelPayload = TunnelWrite
 
 export async function createTunnel(payload: TunnelPayload): Promise<Tunnel> {
   const { data } = await client.post<Tunnel>('/tunnels', payload)

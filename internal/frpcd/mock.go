@@ -14,9 +14,10 @@ import (
 // the network — perfect for CI and unit tests.
 type Mock struct {
 	mu        sync.Mutex
-	started   map[uint]bool                       // endpointID -> running?
-	tunnels   map[uint]map[uint]*model.Tunnel     // endpointID -> tunnelID -> tunnel
-	tunStatus map[uint]map[uint]*TunnelStatus     // endpointID -> tunnelID -> status
+	started   map[uint]bool                   // endpointID -> running?
+	tunnels   map[uint]map[uint]*model.Tunnel // endpointID -> tunnelID -> tunnel
+	tunStatus map[uint]map[uint]*TunnelStatus // endpointID -> tunnelID -> status
+	bus       *EventBus
 }
 
 // NewMock returns a fresh in-memory driver instance. Each Endpoint
@@ -26,8 +27,13 @@ func NewMock() *Mock {
 		started:   make(map[uint]bool),
 		tunnels:   make(map[uint]map[uint]*model.Tunnel),
 		tunStatus: make(map[uint]map[uint]*TunnelStatus),
+		bus:       NewEventBus(),
 	}
 }
+
+// Subscribe returns the no-op event bus tied to this mock. The mock never
+// publishes events on its own, but tests can inject events through it.
+func (m *Mock) Subscribe() (<-chan Event, func()) { return m.bus.Subscribe() }
 
 // Name reports the driver kind. Used in logs and the /api/version
 // endpoint so operators can see which driver is live.
@@ -75,6 +81,12 @@ func (m *Mock) RemoveTunnel(ep *model.Endpoint, t *model.Tunnel) error {
 		delete(m.tunStatus[ep.ID], t.ID)
 	}
 	return nil
+}
+
+// UpdateTunnel re-records a tunnel; matches Embedded's "remove + add"
+// semantics so callers see identical behaviour against either driver.
+func (m *Mock) UpdateTunnel(ep *model.Endpoint, t *model.Tunnel) error {
+	return m.AddTunnel(ep, t)
 }
 
 func (m *Mock) GetEndpointStatus(ep *model.Endpoint) (*EndpointStatus, error) {

@@ -64,6 +64,62 @@ export interface Tunnel {
   updated_at: string
 }
 
+// Write-side shapes. Distinct from the read shapes because the backend
+// hides sensitive fields (token / sk / http_password) from GET responses
+// but still accepts them on PUT/POST. A blank secret on PUT is the
+// "leave it alone" signal — the backend keeps the previous value.
+export interface EndpointWrite {
+  name: string
+  group?: string
+  addr: string
+  port: number
+  protocol?: string
+  user?: string
+  token?: string
+  meta_token?: string
+  tls_enable?: boolean
+  tls_config?: string
+  pool_count?: number
+  heartbeat_interval?: number
+  heartbeat_timeout?: number
+  driver_mode?: 'embedded' | 'subprocess'
+  subprocess_path?: string
+  enabled?: boolean
+  auto_start?: boolean
+}
+
+export interface TunnelWrite {
+  endpoint_id: number
+  name: string
+  type: string
+  role?: '' | 'server' | 'visitor'
+  local_ip?: string
+  local_port?: number
+  remote_port?: number
+  custom_domains?: string
+  subdomain?: string
+  locations?: string
+  http_user?: string
+  http_password?: string
+  host_header_rewrite?: string
+  sk?: string
+  allow_users?: string
+  server_name?: string
+  encryption?: boolean
+  compression?: boolean
+  bandwidth_limit?: string
+  group?: string
+  group_key?: string
+  health_check_type?: string
+  health_check_url?: string
+  plugin?: string
+  plugin_config?: string
+  enabled?: boolean
+  auto_start?: boolean
+  // ISO 8601 (RFC3339) string. Pass null to clear an existing expiry.
+  expire_at?: string | null
+}
+
 export type Role = 'admin' | 'user'
 
 export interface User {

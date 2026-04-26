@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, RefreshCw, Pencil, Trash2 } from 'lucide-vue-next'
+import { Plus, RefreshCw, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,7 +21,7 @@ import { Message } from '@/lib/toast'
 import {
   listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint,
 } from '@/api/endpoints'
-import type { Endpoint } from '@/api/types'
+import type { Endpoint, EndpointWrite } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
@@ -32,6 +32,7 @@ const loading = ref(false)
 const editing = ref<Endpoint | null>(null)
 const dialogOpen = ref(false)
 const submitting = ref(false)
+const showAdvanced = ref(false)
 
 interface FormState {
   name: string
@@ -40,8 +41,14 @@ interface FormState {
   port: number | string
   protocol: string
   token: string
+  meta_token: string
   user: string
   driver_mode: 'embedded' | 'subprocess'
+  tls_enable: boolean
+  tls_config: string
+  pool_count: number | string
+  heartbeat_interval: number | string
+  heartbeat_timeout: number | string
   enabled: boolean
   auto_start: boolean
 }
@@ -56,8 +63,14 @@ function emptyForm(): FormState {
     port: 7000,
     protocol: 'tcp',
     token: '',
+    meta_token: '',
     user: '',
     driver_mode: 'embedded',
+    tls_enable: true,
+    tls_config: '',
+    pool_count: 0,
+    heartbeat_interval: 0,
+    heartbeat_timeout: 0,
     enabled: true,
     auto_start: true,
   }
@@ -75,6 +88,7 @@ async function reload() {
 function openCreate() {
   editing.value = null
   Object.assign(form, emptyForm())
+  showAdvanced.value = false
   dialogOpen.value = true
 }
 
@@ -87,11 +101,23 @@ function openEdit(ep: Endpoint) {
     port: ep.port,
     protocol: ep.protocol || 'tcp',
     token: '',
+    meta_token: '',
     user: ep.user,
     driver_mode: ep.driver_mode || 'embedded',
+    tls_enable: ep.tls_enable,
+    tls_config: ep.tls_config,
+    pool_count: ep.pool_count,
+    heartbeat_interval: ep.heartbeat_interval,
+    heartbeat_timeout: ep.heartbeat_timeout,
     enabled: ep.enabled,
     auto_start: ep.auto_start,
   })
+  // Auto-expand advanced section if any non-default value exists, so we
+  // never hide pre-existing config behind the fold.
+  showAdvanced.value = Boolean(
+    !ep.tls_enable || ep.tls_config || ep.pool_count > 0 ||
+    ep.heartbeat_interval > 0 || ep.heartbeat_timeout > 0
+  )
   dialogOpen.value = true
 }
 
@@ -107,15 +133,21 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const payload = {
+    const payload: EndpointWrite = {
       name: form.name.trim(),
       group: form.group.trim(),
       addr: form.addr.trim(),
       port,
       protocol: form.protocol,
       token: form.token,
+      meta_token: form.meta_token,
       user: form.user.trim(),
       driver_mode: form.driver_mode,
+      tls_enable: form.tls_enable,
+      tls_config: form.tls_config,
+      pool_count: Number(form.pool_count) || 0,
+      heartbeat_interval: Number(form.heartbeat_interval) || 0,
+      heartbeat_timeout: Number(form.heartbeat_timeout) || 0,
       enabled: form.enabled,
       auto_start: form.auto_start,
     }
@@ -175,6 +207,7 @@ onMounted(reload)
           <TableHead>{{ t('endpoint.field.addr') }}</TableHead>
           <TableHead>{{ t('endpoint.field.protocol') }}</TableHead>
           <TableHead>{{ t('endpoint.field.driver') }}</TableHead>
+          <TableHead>{{ t('endpoint.field.tls_enable') }}</TableHead>
           <TableHead>{{ t('endpoint.field.enabled') }}</TableHead>
           <TableHead class="text-right">{{ t('common.actions') }}</TableHead>
         </TableRow>
@@ -191,6 +224,11 @@ onMounted(reload)
           <TableCell>{{ ep.protocol || 'tcp' }}</TableCell>
           <TableCell>
             <Badge variant="secondary">{{ ep.driver_mode }}</Badge>
+          </TableCell>
+          <TableCell>
+            <Badge :variant="ep.tls_enable ? 'default' : 'outline'">
+              {{ ep.tls_enable ? t('common.on') : t('common.off') }}
+            </Badge>
           </TableCell>
           <TableCell>
             <Badge :variant="ep.enabled ? 'default' : 'outline'">
@@ -212,65 +250,120 @@ onMounted(reload)
     <EmptyState v-else icon="🛰️" :title="t('endpoint.empty')" :description="t('endpoint.empty_hint')" />
 
     <Dialog v-model:open="dialogOpen">
-      <DialogContent class="max-w-lg">
+      <DialogContent class="max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{{ editing ? t('endpoint.edit') : t('endpoint.add') }}</DialogTitle>
         </DialogHeader>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.name') }}</Label>
-            <Input v-model="form.name" placeholder="aliyun-bj" />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.group') }}</Label>
-            <Input v-model="form.group" placeholder="prod" />
-          </div>
-          <div class="flex flex-col gap-1.5 col-span-2">
-            <Label>{{ t('endpoint.field.addr') }}</Label>
-            <Input v-model="form.addr" placeholder="frps.example.com" />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.port') }}</Label>
-            <Input v-model.number="form.port" type="number" min="1" max="65535" />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.protocol') }}</Label>
-            <Select v-model="form.protocol">
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tcp">tcp</SelectItem>
-                <SelectItem value="kcp">kcp</SelectItem>
-                <SelectItem value="quic">quic</SelectItem>
-                <SelectItem value="websocket">websocket</SelectItem>
-                <SelectItem value="wss">wss</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="flex flex-col gap-1.5 col-span-2">
-            <Label>{{ t('endpoint.field.token') }}</Label>
-            <Input v-model="form.token" type="password" :placeholder="editing ? t('endpoint.field.token_keep') : ''" />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.user') }}</Label>
-            <Input v-model="form.user" placeholder="" />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label>{{ t('endpoint.field.driver') }}</Label>
-            <Select v-model="form.driver_mode">
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="embedded">embedded</SelectItem>
-                <SelectItem value="subprocess">subprocess</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="flex items-center gap-2 col-span-2">
-            <Switch v-model:checked="form.enabled" />
-            <Label class="cursor-pointer" @click="form.enabled = !form.enabled">{{ t('endpoint.field.enabled') }}</Label>
-            <Switch class="ml-4" v-model:checked="form.auto_start" />
-            <Label class="cursor-pointer" @click="form.auto_start = !form.auto_start">{{ t('endpoint.field.auto_start') }}</Label>
-          </div>
+
+        <div class="flex flex-col gap-5">
+          <section class="grid grid-cols-2 gap-3">
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.name') }}</Label>
+              <Input v-model="form.name" placeholder="aliyun-bj" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.group') }}</Label>
+              <Input v-model="form.group" placeholder="prod" />
+            </div>
+            <div class="flex flex-col gap-1.5 col-span-2">
+              <Label>{{ t('endpoint.field.addr') }}</Label>
+              <Input v-model="form.addr" placeholder="frps.example.com" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.port') }}</Label>
+              <Input v-model.number="form.port" type="number" min="1" max="65535" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.protocol') }}</Label>
+              <Select v-model="form.protocol">
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tcp">tcp</SelectItem>
+                  <SelectItem value="kcp">kcp</SelectItem>
+                  <SelectItem value="quic">quic</SelectItem>
+                  <SelectItem value="websocket">websocket</SelectItem>
+                  <SelectItem value="wss">wss</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="flex flex-col gap-1.5 col-span-2">
+              <Label>{{ t('endpoint.field.token') }}</Label>
+              <Input v-model="form.token" type="password" :placeholder="editing ? t('endpoint.field.token_keep') : ''" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.user') }}</Label>
+              <Input v-model="form.user" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.driver') }}</Label>
+              <Select v-model="form.driver_mode">
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="embedded">embedded</SelectItem>
+                  <SelectItem value="subprocess">subprocess</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="flex items-center gap-4 col-span-2">
+              <div class="flex items-center gap-2">
+                <Switch v-model:checked="form.enabled" />
+                <Label class="cursor-pointer m-0" @click="form.enabled = !form.enabled">{{ t('endpoint.field.enabled') }}</Label>
+              </div>
+              <div class="flex items-center gap-2">
+                <Switch v-model:checked="form.auto_start" />
+                <Label class="cursor-pointer m-0" @click="form.auto_start = !form.auto_start">{{ t('endpoint.field.auto_start') }}</Label>
+              </div>
+            </div>
+          </section>
+
+          <button
+            type="button"
+            class="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground self-start"
+            @click="showAdvanced = !showAdvanced"
+          >
+            <component :is="showAdvanced ? ChevronDown : ChevronRight" class="size-4" />
+            <span>{{ showAdvanced ? t('endpoint.advanced_hide') : t('endpoint.advanced') }}</span>
+          </button>
+
+          <section v-if="showAdvanced" class="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-3">
+            <div class="flex items-center gap-2 col-span-2">
+              <Switch v-model:checked="form.tls_enable" />
+              <div class="flex flex-col">
+                <Label class="cursor-pointer m-0" @click="form.tls_enable = !form.tls_enable">
+                  {{ t('endpoint.field.tls_enable') }}
+                </Label>
+                <span class="text-xs text-muted-foreground">{{ t('endpoint.field.tls_enable_hint') }}</span>
+              </div>
+            </div>
+            <div class="flex flex-col gap-1.5 col-span-2">
+              <Label>{{ t('endpoint.field.tls_config') }}</Label>
+              <Input v-model="form.tls_config" placeholder="/etc/frp/tls/cert.pem" />
+            </div>
+            <div class="flex flex-col gap-1.5 col-span-2">
+              <Label>{{ t('endpoint.field.meta_token') }}</Label>
+              <Input
+                v-model="form.meta_token"
+                type="password"
+                :placeholder="editing ? t('endpoint.field.token_keep') : t('endpoint.field.meta_token_hint')"
+              />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.pool_count') }}</Label>
+              <Input v-model.number="form.pool_count" type="number" min="0" />
+              <span class="text-xs text-muted-foreground">{{ t('endpoint.field.pool_count_hint') }}</span>
+            </div>
+            <div />
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.heartbeat_interval') }}</Label>
+              <Input v-model.number="form.heartbeat_interval" type="number" min="0" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <Label>{{ t('endpoint.field.heartbeat_timeout') }}</Label>
+              <Input v-model.number="form.heartbeat_timeout" type="number" min="0" />
+            </div>
+          </section>
         </div>
+
         <DialogFooter>
           <Button variant="outline" @click="dialogOpen = false">{{ t('common.cancel') }}</Button>
           <Button :disabled="submitting" @click="submit">{{ t('common.confirm') }}</Button>
