@@ -474,6 +474,17 @@ func (a *Authenticator) sign(u *model.User) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.secret)
 }
 
+// IssueAccessToken mints a standard 24h JWT for the given user using
+// the same signing path as LoginHandler. The Wails desktop entry
+// point uses this to produce a self-issued token so its tray menu can
+// hit the local HTTP API without a roundtrip through /api/auth/login.
+//
+// Callers are responsible for refreshing before expiry — the desktop
+// loop currently re-mints once a day.
+func (a *Authenticator) IssueAccessToken(u *model.User) (string, error) {
+	return a.sign(u)
+}
+
 // checkJWT validates the bearer token and returns the active user behind
 // it. An account that has since been disabled or deleted rejects the
 // request even if the token has not yet expired.
