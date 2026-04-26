@@ -208,6 +208,24 @@ export default {
         local_reach: '本地服务可达'
       }
     },
+    advice: {
+      action: 'frps 配置助手',
+      title: 'frps 侧需要的配置',
+      subtitle: '基于隧道「{name}」的字段反推 frps.toml 应当如何配置。',
+      loading: '正在生成建议…',
+      empty: '该隧道无需 frps 端额外配置',
+      severity: {
+        required: '必须',
+        recommended: '建议',
+        info: '提示',
+        warn: '注意'
+      },
+      docs: '查看官方文档',
+      caveats: '其他注意事项',
+      snippet: '可粘贴到 frps.toml 的片段',
+      copy: '复制片段',
+      copied: '已复制到剪贴板'
+    },
     section: {
       basic: '基础',
       proxy: 'Proxy（公网入口）',

@@ -76,3 +76,33 @@ export async function diagnoseTunnel(id: number): Promise<DiagReport> {
   const { data } = await client.post<DiagReport>(`/tunnels/${id}/diagnose`)
   return data
 }
+
+// AdviceSeverity mirrors internal/frpshelper.Severity. plan.md §7.1
+// renders required > recommended > info > warn as four distinct badge
+// styles, so we keep the union exhaustive even though current rules
+// don't emit `warn` yet.
+export type AdviceSeverity = 'required' | 'recommended' | 'info' | 'warn'
+
+export interface AdviceItem {
+  severity: AdviceSeverity
+  field?: string
+  value?: string
+  title: string
+  detail?: string
+  doc_url?: string
+}
+
+export interface FrpsAdvice {
+  tunnel_id: number
+  endpoint_id: number
+  items: AdviceItem[]
+  toml_snippet: string
+  caveats?: string[]
+}
+
+// frpsAdvice fetches the structured "what does my frps.toml need"
+// report. Pure read on the backend; safe to call repeatedly.
+export async function frpsAdvice(id: number): Promise<FrpsAdvice> {
+  const { data } = await client.get<FrpsAdvice>(`/tunnels/${id}/frps-advice`)
+  return data
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/captcha"
 	"github.com/teacat99/FrpDeck/internal/config"
 	"github.com/teacat99/FrpDeck/internal/diag"
+	"github.com/teacat99/FrpDeck/internal/frpshelper"
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
 	"github.com/teacat99/FrpDeck/internal/model"
@@ -115,6 +116,7 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.POST("/tunnels/:id/stop", s.handleStopTunnel)
 	g.POST("/tunnels/:id/renew", s.handleRenewTunnel)
 	g.POST("/tunnels/:id/diagnose", s.handleDiagnoseTunnel)
+	g.GET("/tunnels/:id/frps-advice", s.handleAdviseTunnelFrps)
 
 	// User management endpoints (admin-only is enforced inside the
 	// handler via ensureAdmin so the auth layer can keep a single gate).
@@ -599,6 +601,47 @@ func (s *Server) handleDiagnoseTunnel(c *gin.Context) {
 	}
 	rep := diag.NewRunner(s.driver).Run(c.Request.Context(), ep, t)
 	c.JSON(http.StatusOK, rep)
+}
+
+// handleAdviseTunnelFrps reverse-engineers the frps.toml requirements
+// for a given tunnel and returns a structured Advice payload. plan.md
+// §7.1 calls this the "frp 配置助手": instead of asking users to read
+// the gofrp.org docs from scratch, FrpDeck enumerates exactly which
+// frps knobs the current tunnel implies (vhost ports, allow lists,
+// stun servers, etc.) and renders a copy-pasteable TOML snippet.
+//
+// Pure read; safe for any authenticated user (no driver side effects).
+// We still gate behind ensureAdmin to keep the access pattern aligned
+// with the rest of the tunnels mutation routes — viewers should not
+// depend on this and the helper output may leak shape of the network.
+func (s *Server) handleAdviseTunnelFrps(c *gin.Context) {
+	if !s.ensureAdmin(c) {
+		return
+	}
+	id, err := parseID(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	t, err := s.store.GetTunnel(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if t == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+		return
+	}
+	ep, err := s.store.GetEndpoint(t.EndpointID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if ep == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "endpoint not found"})
+		return
+	}
+	c.JSON(http.StatusOK, frpshelper.Advise(ep, t))
 }
 
 // pushTunnelToDriver looks up the endpoint and registers/refreshes the

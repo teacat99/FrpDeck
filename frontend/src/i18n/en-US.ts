@@ -208,6 +208,24 @@ export default {
         local_reach: 'Local service reachable'
       }
     },
+    advice: {
+      action: 'frps config helper',
+      title: 'What your frps.toml needs',
+      subtitle: 'Reverse-engineered from the "{name}" tunnel fields.',
+      loading: 'Generating advice…',
+      empty: 'No additional frps configuration required for this tunnel.',
+      severity: {
+        required: 'Required',
+        recommended: 'Recommended',
+        info: 'Info',
+        warn: 'Warning'
+      },
+      docs: 'Open docs',
+      caveats: 'Caveats',
+      snippet: 'frps.toml snippet (paste-ready)',
+      copy: 'Copy snippet',
+      copied: 'Copied to clipboard'
+    },
     section: {
       basic: 'Basic',
       proxy: 'Proxy (public ingress)',

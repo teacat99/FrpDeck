@@ -5,6 +5,7 @@ import {
   Plus, RefreshCw, Pencil, Trash2, Play, Square,
   ChevronDown, ChevronRight, Clock, AlarmClockPlus, Infinity as InfinityIcon,
   Stethoscope, CircleCheck, CircleAlert, CircleX, MinusCircle, Loader2,
+  ServerCog, Copy, ExternalLink,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,7 +30,9 @@ import { Message } from '@/lib/toast'
 import {
   listTunnels, createTunnel, updateTunnel, deleteTunnel,
   startTunnel, stopTunnel, renewTunnel, diagnoseTunnel,
+  frpsAdvice,
   type DiagReport, type DiagStatus,
+  type FrpsAdvice, type AdviceItem, type AdviceSeverity,
 } from '@/api/tunnels'
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
@@ -390,6 +393,54 @@ const DIAG_STATUS_VARIANT: Record<DiagStatus, 'default' | 'destructive' | 'secon
   skipped: 'outline',
 }
 
+// ----- frps configuration helper (P5-B) -------------------------------
+// Reverse-engineers the frps.toml requirements for a given tunnel and
+// surfaces them in a dedicated dialog. plan.md §7.1: lower the frp
+// learning curve by enumerating exactly which knobs the current tunnel
+// implies, with copy-paste TOML snippet and per-field doc deeplinks.
+const adviceOpen = ref(false)
+const adviceTunnel = ref<Tunnel | null>(null)
+const adviceLoading = ref(false)
+const adviceData = ref<FrpsAdvice | null>(null)
+const adviceError = ref('')
+
+async function openAdvice(tn: Tunnel) {
+  adviceTunnel.value = tn
+  adviceOpen.value = true
+  adviceLoading.value = true
+  adviceData.value = null
+  adviceError.value = ''
+  try {
+    adviceData.value = await frpsAdvice(tn.id)
+  } catch (e: any) {
+    adviceError.value = e?.response?.data?.error ?? t('msg.opFailed')
+  } finally {
+    adviceLoading.value = false
+  }
+}
+
+async function copyAdviceSnippet() {
+  if (!adviceData.value) return
+  try {
+    await navigator.clipboard.writeText(adviceData.value.toml_snippet)
+    Message.success(t('tunnel.advice.copied'))
+  } catch {
+    Message.error(t('msg.opFailed'))
+  }
+}
+
+const ADVICE_SEVERITY_VARIANT: Record<AdviceSeverity, 'default' | 'destructive' | 'secondary' | 'outline'> = {
+  required: 'destructive',
+  recommended: 'default',
+  warn: 'secondary',
+  info: 'outline',
+}
+
+// adviceItems is just `adviceData?.items ?? []` but threaded through a
+// computed so the template stays terse and we keep the frontend
+// resilient to a future backend that omits the array on empty.
+const adviceItems = computed<AdviceItem[]>(() => adviceData.value?.items ?? [])
+
 // renew issues a one-shot extension to the tunnel's expiry. The
 // backend reactivates expired rows in-place so the operator can
 // rescue a stale tunnel without re-creating it. extendSeconds=0 is
@@ -567,6 +618,15 @@ function liveStateLabel(tn: Tunnel): string | null {
               @click="runDiag(tn, { open: true })"
             >
               <Stethoscope class="size-4" />
+            </Button>
+            <Button
+              v-if="auth.isAdmin"
+              size="icon"
+              variant="ghost"
+              :title="t('tunnel.advice.action')"
+              @click="openAdvice(tn)"
+            >
+              <ServerCog class="size-4" />
             </Button>
             <Button v-if="auth.isAdmin" size="icon" variant="ghost" @click="openEdit(tn)">
               <Pencil class="size-4" />
@@ -883,6 +943,89 @@ function liveStateLabel(tn: Tunnel): string | null {
           >
             <RefreshCw class="size-4" :class="{ 'animate-spin': diagRunning }" />
             <span>{{ t('tunnel.diag.rerun') }}</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- frps configuration helper (P5-B) -->
+    <Dialog v-model:open="adviceOpen">
+      <DialogContent class="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{{ t('tunnel.advice.title') }}</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto">
+          <p v-if="adviceTunnel" class="text-sm text-muted-foreground">
+            {{ t('tunnel.advice.subtitle', { name: adviceTunnel.name }) }}
+          </p>
+
+          <div v-if="adviceLoading" class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="size-4 animate-spin" />
+            <span>{{ t('tunnel.advice.loading') }}</span>
+          </div>
+
+          <div v-if="adviceError" class="text-sm text-destructive">{{ adviceError }}</div>
+
+          <div v-if="adviceData">
+            <ul v-if="adviceItems.length" class="flex flex-col gap-2">
+              <li
+                v-for="(it, idx) in adviceItems"
+                :key="idx"
+                class="rounded-md border p-3 flex flex-col gap-1.5"
+              >
+                <div class="flex items-center gap-2 flex-wrap">
+                  <Badge :variant="ADVICE_SEVERITY_VARIANT[it.severity]">
+                    {{ t('tunnel.advice.severity.' + it.severity) }}
+                  </Badge>
+                  <span class="font-medium text-sm">{{ it.title }}</span>
+                </div>
+                <div v-if="it.field" class="font-mono text-xs text-muted-foreground">
+                  {{ it.field }}<span v-if="it.value"> = {{ it.value }}</span>
+                </div>
+                <div v-if="it.detail" class="text-xs text-muted-foreground leading-relaxed">{{ it.detail }}</div>
+                <a
+                  v-if="it.doc_url"
+                  :href="it.doc_url"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  class="text-xs text-primary inline-flex items-center gap-1 hover:underline"
+                >
+                  <ExternalLink class="size-3" />
+                  <span>{{ t('tunnel.advice.docs') }}</span>
+                </a>
+              </li>
+            </ul>
+            <div v-else class="text-sm text-muted-foreground">
+              {{ t('tunnel.advice.empty') }}
+            </div>
+
+            <div v-if="adviceData.caveats && adviceData.caveats.length" class="mt-3 rounded-md border border-amber-300/50 bg-amber-50/40 dark:bg-amber-950/20 p-3">
+              <div class="text-xs font-medium mb-1.5">{{ t('tunnel.advice.caveats') }}</div>
+              <ul class="list-disc list-inside text-xs text-muted-foreground flex flex-col gap-1">
+                <li v-for="(c, i) in adviceData.caveats" :key="i">{{ c }}</li>
+              </ul>
+            </div>
+
+            <div v-if="adviceData.toml_snippet" class="mt-3">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="text-xs font-medium">{{ t('tunnel.advice.snippet') }}</div>
+                <Button size="sm" variant="ghost" @click="copyAdviceSnippet">
+                  <Copy class="size-3.5" />
+                  <span>{{ t('tunnel.advice.copy') }}</span>
+                </Button>
+              </div>
+              <pre class="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre">{{ adviceData.toml_snippet }}</pre>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="adviceOpen = false">{{ t('common.close') }}</Button>
+          <Button
+            :disabled="adviceLoading || !adviceTunnel"
+            @click="adviceTunnel && openAdvice(adviceTunnel)"
+          >
+            <RefreshCw class="size-4" :class="{ 'animate-spin': adviceLoading }" />
+            <span>{{ t('common.refresh') }}</span>
           </Button>
         </DialogFooter>
       </DialogContent>
