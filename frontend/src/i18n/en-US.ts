@@ -188,6 +188,26 @@ export default {
       expiring_title: 'Tunnel {name} expiring soon',
       expiring_body: 'Auto-stop in ~{minutes} minutes — renew from the Tunnels page.'
     },
+    diag: {
+      action: 'Run connectivity check',
+      title: 'Connectivity check',
+      subtitle: 'Probes DNS / frps port / session register / local service in order. Fix and re-run as needed.',
+      running: 'Running checks…',
+      rerun: 'Re-run',
+      overall: 'Overall',
+      status: {
+        ok: 'OK',
+        warn: 'Warning',
+        fail: 'Failed',
+        skipped: 'Skipped'
+      },
+      check: {
+        dns: 'DNS resolution',
+        tcp_probe: 'frps port probe',
+        frps_register: 'frps session state',
+        local_reach: 'Local service reachable'
+      }
+    },
     section: {
       basic: 'Basic',
       proxy: 'Proxy (public ingress)',

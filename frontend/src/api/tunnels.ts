@@ -48,3 +48,31 @@ export async function renewTunnel(id: number, extendSeconds: number): Promise<Tu
   })
   return data
 }
+
+// DiagStatus mirrors internal/diag.Status. Stable string union so the
+// frontend can map status → i18n suffix and badge variant.
+export type DiagStatus = 'ok' | 'warn' | 'fail' | 'skipped'
+
+export interface DiagCheck {
+  id: 'dns' | 'tcp_probe' | 'frps_register' | 'local_reach'
+  status: DiagStatus
+  message: string
+  hint?: string
+  duration_ms: number
+}
+
+export interface DiagReport {
+  tunnel_id: number
+  endpoint_id: number
+  overall: DiagStatus
+  generated_at: string
+  checks: DiagCheck[]
+}
+
+// diagnoseTunnel runs the four-step connectivity self-check on the
+// backend and returns the structured report. The detail panel calls
+// this on save and exposes a manual "Re-run" button.
+export async function diagnoseTunnel(id: number): Promise<DiagReport> {
+  const { data } = await client.post<DiagReport>(`/tunnels/${id}/diagnose`)
+  return data
+}

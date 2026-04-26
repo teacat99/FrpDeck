@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Plus, RefreshCw, Pencil, Trash2, Play, Square,
   ChevronDown, ChevronRight, Clock, AlarmClockPlus, Infinity as InfinityIcon,
+  Stethoscope, CircleCheck, CircleAlert, CircleX, MinusCircle, Loader2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,7 +28,8 @@ import EmptyState from '@/components/EmptyState.vue'
 import { Message } from '@/lib/toast'
 import {
   listTunnels, createTunnel, updateTunnel, deleteTunnel,
-  startTunnel, stopTunnel, renewTunnel,
+  startTunnel, stopTunnel, renewTunnel, diagnoseTunnel,
+  type DiagReport, type DiagStatus,
 } from '@/api/tunnels'
 import { listEndpoints } from '@/api/endpoints'
 import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
@@ -296,15 +298,24 @@ async function submit() {
       auto_start: form.auto_start,
       expire_at: form.expire_local ? toIsoOrNull(form.expire_local) : null,
     }
+    let saved: Tunnel
     if (editing.value) {
-      await updateTunnel(editing.value.id, payload)
+      saved = await updateTunnel(editing.value.id, payload)
       Message.success(t('common.updated'))
     } else {
-      await createTunnel(payload)
+      saved = await createTunnel(payload)
       Message.success(t('common.created'))
     }
     dialogOpen.value = false
     await reload()
+    // Per P5-D auto-diagnose contract: kick off the four-step probe in
+    // the background and surface the panel only if anything is wrong.
+    // Manual rerun is always available via the Stethoscope action.
+    runDiag(saved, { open: false }).then(() => {
+      if (diagReport.value && diagReport.value.overall !== 'ok' && diagReport.value.overall !== 'skipped') {
+        diagOpen.value = true
+      }
+    })
   } catch (e: any) {
     Message.error(e?.response?.data?.error ?? t('msg.saveFailed'))
   } finally {
@@ -342,6 +353,41 @@ async function stop(tn: Tunnel) {
   } catch (e: any) {
     Message.error(e?.response?.data?.error ?? t('msg.opFailed'))
   }
+}
+
+// ----- Connectivity self-check (P5-D) ---------------------------------
+// One panel shared by all rows. Open it on demand (Stethoscope icon)
+// or automatically after a successful save so the user immediately sees
+// whether the tunnel they just configured is going to work.
+const diagOpen = ref(false)
+const diagReport = ref<DiagReport | null>(null)
+const diagRunning = ref(false)
+const diagTunnel = ref<Tunnel | null>(null)
+const diagError = ref('')
+
+async function runDiag(tn: Tunnel, opts: { open?: boolean } = {}) {
+  diagTunnel.value = tn
+  diagRunning.value = true
+  diagError.value = ''
+  if (opts.open) {
+    diagOpen.value = true
+    diagReport.value = null
+  }
+  try {
+    diagReport.value = await diagnoseTunnel(tn.id)
+  } catch (e: any) {
+    diagError.value = e?.response?.data?.error ?? t('msg.opFailed')
+    diagReport.value = null
+  } finally {
+    diagRunning.value = false
+  }
+}
+
+const DIAG_STATUS_VARIANT: Record<DiagStatus, 'default' | 'destructive' | 'secondary' | 'outline'> = {
+  ok: 'default',
+  warn: 'secondary',
+  fail: 'destructive',
+  skipped: 'outline',
 }
 
 // renew issues a one-shot extension to the tunnel's expiry. The
@@ -512,6 +558,15 @@ function liveStateLabel(tn: Tunnel): string | null {
             </Button>
             <Button v-if="auth.isAdmin && tn.status === 'active'" size="icon" variant="ghost" @click="stop(tn)">
               <Square class="size-4" />
+            </Button>
+            <Button
+              v-if="auth.isAdmin"
+              size="icon"
+              variant="ghost"
+              :title="t('tunnel.diag.action')"
+              @click="runDiag(tn, { open: true })"
+            >
+              <Stethoscope class="size-4" />
             </Button>
             <Button v-if="auth.isAdmin" size="icon" variant="ghost" @click="openEdit(tn)">
               <Pencil class="size-4" />
@@ -770,6 +825,65 @@ function liveStateLabel(tn: Tunnel): string | null {
         <DialogFooter>
           <Button variant="outline" @click="dialogOpen = false">{{ t('common.cancel') }}</Button>
           <Button :disabled="submitting" @click="submit">{{ t('common.confirm') }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Connectivity self-check panel (P5-D) ------------------------- -->
+    <Dialog v-model:open="diagOpen">
+      <DialogContent class="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>
+            {{ t('tunnel.diag.title') }}
+            <span v-if="diagTunnel" class="text-sm text-muted-foreground font-normal">— {{ diagTunnel.name }}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div class="flex flex-col gap-3">
+          <p class="text-sm text-muted-foreground">{{ t('tunnel.diag.subtitle') }}</p>
+
+          <div v-if="diagError" class="text-sm text-destructive">{{ diagError }}</div>
+
+          <div v-if="diagRunning && !diagReport" class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="size-4 animate-spin" />
+            <span>{{ t('tunnel.diag.running') }}</span>
+          </div>
+
+          <div v-if="diagReport" class="flex items-center gap-2">
+            <span class="text-xs uppercase tracking-wider text-muted-foreground">{{ t('tunnel.diag.overall') }}</span>
+            <Badge :variant="DIAG_STATUS_VARIANT[diagReport.overall]">
+              {{ t('tunnel.diag.status.' + diagReport.overall) }}
+            </Badge>
+          </div>
+
+          <ul v-if="diagReport" class="flex flex-col gap-2">
+            <li v-for="c in diagReport.checks" :key="c.id" class="rounded-md border p-3 flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
+                <CircleCheck v-if="c.status === 'ok'" class="size-4 text-emerald-500" />
+                <CircleAlert v-else-if="c.status === 'warn'" class="size-4 text-amber-500" />
+                <CircleX v-else-if="c.status === 'fail'" class="size-4 text-destructive" />
+                <MinusCircle v-else class="size-4 text-muted-foreground" />
+                <span class="font-medium text-sm">{{ t('tunnel.diag.check.' + c.id) }}</span>
+                <Badge :variant="DIAG_STATUS_VARIANT[c.status]" class="ml-auto text-[10px]">
+                  {{ t('tunnel.diag.status.' + c.status) }}
+                </Badge>
+                <span class="text-[10px] text-muted-foreground font-mono">{{ c.duration_ms }}ms</span>
+              </div>
+              <p class="text-xs text-muted-foreground font-mono break-all">{{ c.message }}</p>
+              <p v-if="c.hint" class="text-xs text-amber-600 dark:text-amber-400">→ {{ c.hint }}</p>
+            </li>
+          </ul>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="diagOpen = false">{{ t('common.close') }}</Button>
+          <Button
+            :disabled="diagRunning || !diagTunnel"
+            @click="diagTunnel && runDiag(diagTunnel)"
+          >
+            <RefreshCw class="size-4" :class="{ 'animate-spin': diagRunning }" />
+            <span>{{ t('tunnel.diag.rerun') }}</span>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -188,6 +188,26 @@ export default {
       expiring_title: '隧道 {name} 即将到期',
       expiring_body: '约 {minutes} 分钟后将自动停止，可在「隧道」页快速续期。'
     },
+    diag: {
+      action: '连通性自检',
+      title: '连通性自检',
+      subtitle: '依次检查 DNS / frps 端口 / 会话注册 / 本地服务，按需修复后重跑。',
+      running: '正在执行自检…',
+      rerun: '重新检查',
+      overall: '总体',
+      status: {
+        ok: '正常',
+        warn: '警告',
+        fail: '失败',
+        skipped: '跳过'
+      },
+      check: {
+        dns: 'DNS 解析',
+        tcp_probe: 'frps 端口探测',
+        frps_register: 'frps 会话状态',
+        local_reach: '本地服务可达'
+      }
+    },
     section: {
       basic: '基础',
       proxy: 'Proxy（公网入口）',

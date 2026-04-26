@@ -19,6 +19,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/auth"
 	"github.com/teacat99/FrpDeck/internal/captcha"
 	"github.com/teacat99/FrpDeck/internal/config"
+	"github.com/teacat99/FrpDeck/internal/diag"
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
 	"github.com/teacat99/FrpDeck/internal/model"
@@ -113,6 +114,7 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.POST("/tunnels/:id/start", s.handleStartTunnel)
 	g.POST("/tunnels/:id/stop", s.handleStopTunnel)
 	g.POST("/tunnels/:id/renew", s.handleRenewTunnel)
+	g.POST("/tunnels/:id/diagnose", s.handleDiagnoseTunnel)
 
 	// User management endpoints (admin-only is enforced inside the
 	// handler via ensureAdmin so the auth layer can keep a single gate).
@@ -556,6 +558,47 @@ func (s *Server) handleRenewTunnel(c *gin.Context) {
 		Detail: fmt.Sprintf(`{"extend_seconds":%d}`, *req.ExtendSeconds),
 	})
 	c.JSON(http.StatusOK, t)
+}
+
+// handleDiagnoseTunnel runs the four-step connectivity self-check
+// (DNS / TCP probe / frps register / local reach) against the tunnel
+// and returns a structured Report. The route is admin-only because
+// the probe touches the configured frps host on every call and we
+// don't want anonymous traffic generating outbound dials.
+//
+// The result is informational: we deliberately do not flip tunnel
+// state on diag failure (the user might still want to save and try
+// later). The frontend renders the four checks as a step-by-step
+// list in the tunnel detail panel.
+func (s *Server) handleDiagnoseTunnel(c *gin.Context) {
+	if !s.ensureAdmin(c) {
+		return
+	}
+	id, err := parseID(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	t, err := s.store.GetTunnel(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if t == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+		return
+	}
+	ep, err := s.store.GetEndpoint(t.EndpointID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if ep == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "endpoint not found"})
+		return
+	}
+	rep := diag.NewRunner(s.driver).Run(c.Request.Context(), ep, t)
+	c.JSON(http.StatusOK, rep)
 }
 
 // pushTunnelToDriver looks up the endpoint and registers/refreshes the
