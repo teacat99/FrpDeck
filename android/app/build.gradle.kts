@@ -1,5 +1,14 @@
-// FrpDeck app module — the Android shell that hosts the Compose UI and
+// FrpDeck app module — the Android shell that hosts the Vue WebView and
 // embeds the gomobile-produced frpdeckmobile.aar.
+//
+// P6′/P7′ note: the native UI was a Compose tab strip in v1; it has
+// been replaced by a single full-screen WebView that loads the same
+// Vue SPA the desktop / Docker builds ship. The shell is now mostly:
+//   - MainActivity      → WebView host + JS bridge (`window.frpdeck`)
+//   - PrepareActivity   → transparent VpnService.prepare() trampoline
+//   - FrpDeckVpnService → catch-all tun + tun2socks dispatcher
+//   - FrpDeckForegroundService → frpc engine lifecycle owner
+// No Compose / Retrofit dependencies remain.
 //
 // Build flavours / variants:
 //   - debug   : assembleDebug, signed with the default debug keystore
@@ -14,7 +23,6 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -76,8 +84,26 @@ android {
     }
 
     buildFeatures {
-        compose = true
         buildConfig = true
+    }
+
+    // ABI splits — emit one APK per native ABI plus a universal fat
+    // APK. Rationale: gomobile bundles the full Go runtime as
+    // libgojni.so per ABI (~50 MB each). A single fat APK shipping all
+    // four ABIs balloons to ~170 MB, but a per-ABI APK is closer to
+    // ~25 MB. Sideloaders pick the per-ABI build matching their
+    // device, while CI publishes the universal APK as the
+    // "compatible with anything" fallback.
+    //
+    // Naming: gradle emits files like `app-arm64-v8a-release.apk` and
+    // `app-universal-release.apk` so each artefact is self-describing.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     packaging {
@@ -112,41 +138,25 @@ dependencies {
     // which calls gomobile bind and copies the aar into app/libs/.
     implementation(files("libs/frpdeckmobile.aar"))
 
-    // AndroidX core / lifecycle.
+    // AndroidX core / lifecycle / activity.
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
-    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.activity:activity-ktx:1.9.2")
 
-    // Compose BOM keeps every Compose artefact on the same release.
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.0")
+    // AppCompat for the WebView host activity. The XML theme inherits
+    // from MaterialComponents (no Compose deps required).
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
 
-    // Foreground-service helper (NotificationCompat etc.).
-    implementation("androidx.core:core:1.13.1")
+    // Foreground-service helper (NotificationCompat etc.) + SAF helpers.
     implementation("androidx.documentfile:documentfile:1.0.1")
 
-    // Networking — Retrofit + Moshi for typed API access; OkHttp shared
-    // for the WebView's cookie jar later.
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-
-    // Coroutines.
+    // Coroutines — used by the bridge to dispatch SAF results back to
+    // the WebView without blocking the main thread on IO.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // Tests.
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

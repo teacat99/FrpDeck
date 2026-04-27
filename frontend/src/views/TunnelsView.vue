@@ -48,10 +48,22 @@ import type { Endpoint, Tunnel, TunnelStatus, TunnelWrite } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useRealtimeStore } from '@/stores/realtime'
 import { addRelative, formatRemaining, toIsoOrNull, toLocalInput } from '@/lib/expire'
+import { nativeIsAndroid } from '@/composables/useNativeBridge'
 
 const { t } = useI18n()
 const auth = useAuthStore()
 const realtime = useRealtimeStore()
+
+// Android shell detection — drives the "this tunnel takes over device
+// traffic" warning badge on `visitor + socks5` rows. Browser / desktop
+// builds short-circuit to false because `window.frpdeck` is absent.
+const isAndroidShell = computed(() => nativeIsAndroid())
+
+function tunnelTakesOverDevice(tn: Tunnel): boolean {
+  if (tn.role !== 'visitor') return false
+  if ((tn.plugin || '').toLowerCase() === 'socks5') return true
+  return /socks/i.test(tn.name || '')
+}
 
 const tunnels = ref<Tunnel[]>([])
 const endpoints = ref<Endpoint[]>([])
@@ -820,7 +832,17 @@ function liveStateLabel(tn: Tunnel): string | null {
             <span class="text-sm">{{ endpointMap.get(tn.endpoint_id)?.name ?? `#${tn.endpoint_id}` }}</span>
           </TableCell>
           <TableCell>
-            <Badge variant="outline">{{ tn.type }}<span v-if="tn.role">·{{ tn.role }}</span></Badge>
+            <div class="flex items-center gap-1 flex-wrap">
+              <Badge variant="outline">{{ tn.type }}<span v-if="tn.role">·{{ tn.role }}</span></Badge>
+              <Badge
+                v-if="isAndroidShell && tunnelTakesOverDevice(tn)"
+                variant="destructive"
+                class="text-[10px]"
+                :title="t('tunnel.android_vpn_takeover_hint')"
+              >
+                {{ t('tunnel.android_vpn_takeover') }}
+              </Badge>
+            </div>
           </TableCell>
           <TableCell class="font-mono text-xs">
             {{ tn.local_ip }}:{{ tn.local_port }} → {{ tn.remote_port || tn.subdomain || tn.custom_domains || '—' }}

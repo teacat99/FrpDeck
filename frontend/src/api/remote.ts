@@ -83,6 +83,17 @@ export async function revokeRemoteNode(id: number): Promise<RemoteNode> {
   return data
 }
 
+// revokeRemoteMgmtToken voids the currently issued mgmt_token without
+// tearing down the underlying stcp pairing. The pairing remains usable
+// — the operator must call refreshRemoteInvitation() afterwards to mint
+// a fresh QR for a new redeemer. Use this when a mgmt_token is suspected
+// of being shared with the wrong contact and must be locked out before
+// its 24h TTL elapses.
+export async function revokeRemoteMgmtToken(id: number): Promise<RemoteNode> {
+  const { data } = await client.post<RemoteNode>(`/remote/nodes/${id}/revoke-token`, {})
+  return data
+}
+
 // refreshRemoteInvitation regenerates the invitation for an existing
 // `manages_me` node. The backend rotates SK + mgmt_token JTI and replays
 // the underlying tunnel; the response shape mirrors createRemoteInvitation

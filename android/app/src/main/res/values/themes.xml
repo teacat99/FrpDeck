@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Theme.Material3.DynamicColors stays in code (Compose) so we keep
-         the XML theme minimal: it only matters during the splash flash
-         before Compose paints. -->
-    <style name="Theme.FrpDeck" parent="android:Theme.Material.Light.NoActionBar">
+    <!-- WebView host theme. Inherits from AppCompat so the activity has
+         a proper ActionBar parent class chain (we keep NoActionBar so
+         the WebView fills the entire screen) and so the system status
+         bar matches the slate-900 colour the Vue SPA uses for its dark
+         theme. -->
+    <style name="Theme.FrpDeck" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">#FF1F2937</item>
         <item name="android:statusBarColor">#FF1F2937</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Transparent activity used by PrepareActivity so the system
+         VpnService consent dialog appears on top of the previous
+         screen instead of a brief solid flash. -->
+    <style name="Theme.FrpDeck.Transparent" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
     </style>
 </resources>

@@ -22,11 +22,16 @@
          intent; no signature permission needed. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Allow loopback HTTP from the WebView. By default Android
-         WebView blocks http://127.0.0.1:* under Mixed Content — we
-         declare an explicit network-security-config that exempts
-         loopback. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- VPN split-tunnel mode (P7). Service permission lives on the
+         <service> element below; we declare nothing here because
+         BIND_VPN_SERVICE is a signature-level permission only the OS
+         can hold.
+
+         P6′/P7′ note: the previous build also declared
+         RECEIVE_BOOT_COMPLETED and QUERY_ALL_PACKAGES — both removed.
+         BOOT_COMPLETED was unused (no boot receiver), and the VPN no
+         longer offers an App allow-list, so we no longer need package
+         enumeration. -->
 
     <application
         android:name=".FrpDeckApp"
@@ -52,10 +57,34 @@
             </intent-filter>
         </activity>
 
+        <!-- Transparent trampoline for VpnService.prepare(). Launched
+             with startActivityForResult from MainActivity so the system
+             VPN consent dialog appears on top of the WebView. -->
+        <activity
+            android:name=".vpn.PrepareActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FrpDeck.Transparent"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance" />
+
         <service
             android:name=".service.FrpDeckForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- VpnService for the optional split-tunnel mode (P7). System
+             requires BIND_VPN_SERVICE so only the OS dispatcher can
+             launch it; users still have to confirm via the system
+             VPN consent dialog the first time. -->
+        <service
+            android:name=".vpn.FrpDeckVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
 
     </application>
 </manifest>

@@ -134,6 +134,7 @@ func (s *Server) Router(engine *gin.Engine) {
 	g.GET("/remote/nodes", s.handleListRemoteNodes)
 	g.POST("/remote/invitations", s.handleCreateInvitation)
 	g.POST("/remote/nodes/:id/refresh", s.handleRefreshInvitation)
+	g.POST("/remote/nodes/:id/revoke-token", s.handleRevokeMgmtToken)
 	g.POST("/remote/redeem", s.handleRedeemInvitation)
 	g.DELETE("/remote/nodes/:id", s.handleRevokeRemoteNode)
 
@@ -166,6 +167,13 @@ func (s *Server) Router(engine *gin.Engine) {
 
 	// Profiles (P8-C/D): named bundles of (Endpoint, Tunnel) toggles.
 	s.registerProfileRoutes(g)
+
+	// System probes (P6′/P7′): platform-aware introspection that the
+	// Android shell uses to decide when to bring the device-level
+	// VpnService up. Desktop/Docker hosts may call this too — the
+	// answer is the same — but it is harmless because they have no
+	// VpnService to react to.
+	g.GET("/system/vpn/required", s.handleVPNRequired)
 }
 
 // clientIP is the single choke-point for extracting the trusted client IP.

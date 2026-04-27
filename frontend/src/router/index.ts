@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useRealtimeStore } from '@/stores/realtime'
+import { isNativeBridge, nativeIsAndroid } from '@/composables/useNativeBridge'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -29,6 +30,12 @@ const routes: RouteRecordRaw[] = [
         meta: { adminOnly: true },
         component: () => import('@/views/SettingsView.vue')
       },
+      {
+        path: 'android',
+        name: 'android',
+        meta: { nativeOnly: true },
+        component: () => import('@/views/AndroidSettingsView.vue')
+      },
       { path: 'rules', redirect: { name: 'tunnels' } },
       { path: 'users', redirect: { name: 'settings' } }
     ]
@@ -41,8 +48,19 @@ const router = createRouter({
   routes
 })
 
+// Hydrate auth status exactly once per page-load so the guard doesn't
+// rely on the store's default values (mode='password', required=true)
+// — otherwise an `auth_mode=none` deployment force-redirects every
+// route to /login because `required` is still true at first render.
+let statusHydrated = false
+
 router.beforeEach(async (to, _from, next) => {
   const auth = useAuthStore()
+
+  if (!statusHydrated) {
+    await auth.refreshStatus()
+    statusHydrated = true
+  }
 
   // Remote-management auto-login: when a peer FrpDeck opens our UI
   // through an stcp tunnel it appends `?_redeem=<mgmt_token>` to the
@@ -78,6 +96,13 @@ router.beforeEach(async (to, _from, next) => {
     await auth.fetchMe()
   }
   if (to.meta?.adminOnly && auth.me && auth.me.role !== 'admin') {
+    next({ name: 'home' })
+    return
+  }
+  // Native-only routes (e.g. AndroidSettingsView) require running
+  // inside the Android shell. Browser / desktop visitors are bounced
+  // back to home so they don't see a non-functional page.
+  if (to.meta?.nativeOnly && !(isNativeBridge() && nativeIsAndroid())) {
     next({ name: 'home' })
     return
   }

@@ -21,7 +21,8 @@ export default {
     users: '用户',
     settings: '设置',
     remote: '远程代管',
-    profiles: '场景'
+    profiles: '场景',
+    android: 'Android'
   },
   role: {
     admin: '管理员',
@@ -179,6 +180,8 @@ export default {
     renewed_permanent: '已设为永久',
     advanced: '高级',
     advanced_hide: '收起',
+    android_vpn_takeover: '接管设备流量',
+    android_vpn_takeover_hint: '该 visitor + socks5 隧道一旦激活，FrpDeck 会请求开启系统 VPN 并将整设备流量经此 SOCKS5 转发。',
     renew: {
       label: '续期',
       plus_1h: '+1 小时',
@@ -512,6 +515,9 @@ export default {
     revoke: '撤销',
     revoke_confirm: '撤销将删除自动建立的 stcp 隧道并使邀请码作废，确定？',
     revoked: '已撤销远端节点',
+    revoke_token: '吊销令牌',
+    revoke_token_confirm: '将立即作废当前已下发的管理令牌，但保留 stcp 配对本身。持有旧 QR / token 的人将无法登录。继续？',
+    token_revoked: '管理令牌已吊销；如需让对方重新登录请先生成新邀请',
     empty_managed: '暂未接入任何远端 FrpDeck',
     empty_managed_hint: '点击右上角「接入新的 FrpDeck」开始',
     empty_manages: '暂无对外授权',
@@ -654,5 +660,28 @@ export default {
     probe_incompatible: '当前 frpc {version} 低于最低要求 {min}',
     custom_path: '自定义 frpc 路径',
     custom_path_hint: '留空使用 FrpDeck 下载的版本，否则使用此路径下的二进制。'
+  },
+  android: {
+    title: 'Android 设置',
+    subtitle: '仅在 FrpDeck Android 应用内可见 · 用于授予原生权限与备份',
+    vpn_section: 'VPN 接管',
+    vpn_explainer: '当存在 role=visitor + plugin=socks5 的隧道激活时，FrpDeck 会自动请求开启系统 VPN，用于把全设备流量经 SOCKS5 visitor 转出。提前在此一次性授权可避免运行时弹窗中断。',
+    vpn_request_permission: '请求 VPN 授权',
+    vpn_permission_granted: 'VPN 授权已生效',
+    vpn_permission_pending: '尚未授权 — 触发任意 socks5 visitor 时会再次弹出系统对话框',
+    vpn_permission_ok: '授权成功',
+    vpn_permission_denied: '用户取消授权',
+    vpn_permission_failed: '授权请求失败：{msg}',
+    backup_section: '备份',
+    backup_export: '导出备份…',
+    backup_import: '导入备份…',
+    backup_export_hint: '将 SQLite 数据库与设置打包为 zip，写入用户选择的文件位置（SAF）',
+    backup_import_hint: '导入会停止 frpc 引擎、覆盖本地数据，然后自动重启',
+    backup_export_ok: '已导出 {bytes} 字节',
+    backup_import_ok: '已恢复 {entries} 个条目，引擎已重新启动',
+    backup_failed: '操作失败：{msg}',
+    about_section: '关于',
+    about_version: '原生版本',
+    about_engine: '引擎地址'
   }
 }

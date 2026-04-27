@@ -21,7 +21,8 @@ export default {
     users: 'Users',
     settings: 'Settings',
     remote: 'Remote',
-    profiles: 'Profiles'
+    profiles: 'Profiles',
+    android: 'Android'
   },
   role: {
     admin: 'admin',
@@ -179,6 +180,8 @@ export default {
     renewed_permanent: 'Now permanent',
     advanced: 'Advanced',
     advanced_hide: 'Hide',
+    android_vpn_takeover: 'Takes over device traffic',
+    android_vpn_takeover_hint: 'When this visitor + socks5 tunnel goes active, FrpDeck will request system VPN consent and route the entire device through this SOCKS5 endpoint.',
     renew: {
       label: 'Renew',
       plus_1h: '+1 hour',
@@ -512,6 +515,9 @@ export default {
     revoke: 'Revoke',
     revoke_confirm: 'Revoking deletes the auto-created stcp tunnel and invalidates the invitation. Continue?',
     revoked: 'Remote node revoked',
+    revoke_token: 'Revoke token',
+    revoke_token_confirm: 'Invalidate the currently issued management token without tearing down the pairing. Anyone holding the previous QR/token will be locked out. Continue?',
+    token_revoked: 'Management token revoked; generate a new invitation when ready',
     empty_managed: 'No remote FrpDeck connected yet',
     empty_managed_hint: 'Click "Add remote" to paste an invitation',
     empty_manages: 'No outbound pairings',
@@ -654,5 +660,28 @@ export default {
     probe_incompatible: 'Detected frpc {version} below required {min}',
     custom_path: 'Custom frpc path',
     custom_path_hint: 'Leave blank to use the FrpDeck-downloaded binary; otherwise the binary at this path.'
+  },
+  android: {
+    title: 'Android settings',
+    subtitle: 'Visible only inside the FrpDeck Android app — used to grant native permissions and manage backups',
+    vpn_section: 'VPN takeover',
+    vpn_explainer: 'When a tunnel with role=visitor + plugin=socks5 goes active, FrpDeck automatically asks for system VPN consent so device-wide traffic can route through the SOCKS5 visitor. Pre-authorising here avoids the consent dialog interrupting you later.',
+    vpn_request_permission: 'Request VPN permission',
+    vpn_permission_granted: 'VPN permission already granted',
+    vpn_permission_pending: 'Not yet authorised — the system dialog reappears when a socks5 visitor activates',
+    vpn_permission_ok: 'Permission granted',
+    vpn_permission_denied: 'User denied permission',
+    vpn_permission_failed: 'Permission request failed: {msg}',
+    backup_section: 'Backup',
+    backup_export: 'Export backup…',
+    backup_import: 'Import backup…',
+    backup_export_hint: 'Pack SQLite + settings into a zip and save to a user-picked location (Storage Access Framework)',
+    backup_import_hint: 'Import stops the frpc engine, replaces local data, then auto-restarts',
+    backup_export_ok: 'Exported {bytes} bytes',
+    backup_import_ok: 'Restored {entries} entries; engine restarted',
+    backup_failed: 'Operation failed: {msg}',
+    about_section: 'About',
+    about_version: 'Native version',
+    about_engine: 'Engine endpoint'
   }
 }

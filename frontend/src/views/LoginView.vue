@@ -89,6 +89,13 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   await auth.refreshStatus()
+  // When the backend runs in `none` mode no credentials are required
+  // — bounce straight back to the originally requested route (or
+  // home) so the operator never sees the login form.
+  if (!auth.required) {
+    const redirect = (route.query.redirect as string) || '/'
+    router.replace(redirect)
+  }
 })
 
 async function submit(e?: Event) {

@@ -578,6 +578,82 @@ func (s *Server) handleRedeemInvitation(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// handleRevokeMgmtToken voids the currently-issued mgmt_token without
+// tearing down the underlying stcp pairing. The use case is "I shared
+// the QR with the wrong contact and want them locked out before the
+// 24h TTL expires": we clear the on-record JTI so the next
+// /api/auth/remote-redeem call from anyone holding the stale token is
+// rejected by the JTI mismatch check (see handleRemoteRedeemToken
+// L661–664).
+//
+// The pairing remains usable — generating a new invitation via
+// `POST /remote/nodes/:id/refresh` will mint a fresh JTI + mgmt_token
+// without touching the existing tunnel SK; the visitor on B side keeps
+// working without redeem.
+//
+// Why we don't also rotate the SK: B side has no mgmt_token to redeem
+// once we clear the JTI, so the leak path (someone holding the old
+// mgmt_token) is closed regardless of SK rotation. Rotating SK would
+// require B to repair the visitor end, which is a far heavier
+// operation than what "revoke this leaked token" should cost.
+func (s *Server) handleRevokeMgmtToken(c *gin.Context) {
+	if !s.remoteAuthGuard(c) {
+		return
+	}
+	if !s.ensureAdmin(c) {
+		return
+	}
+	id, err := parseID(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	node, err := s.store.GetRemoteNode(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if node == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "remote node not found"})
+		return
+	}
+	if node.Direction != model.RemoteDirectionManagesMe {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only manages_me nodes have a mgmt_token to revoke"})
+		return
+	}
+	if node.Status == model.RemoteNodeStatusRevoked {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pairing already revoked"})
+		return
+	}
+	if node.MgmtTokenJTI == "" {
+		// Already in "no mgmt_token outstanding" state; treat as
+		// idempotent success so a UI double-click is harmless.
+		c.JSON(http.StatusOK, node)
+		return
+	}
+
+	previousJTI := node.MgmtTokenJTI
+	node.MgmtTokenJTI = ""
+	node.AuthToken = ""
+	// Drop expiry so the reaper does not flip this row to expired
+	// before the operator generates a fresh invitation. The next
+	// refresh call resets InviteExpiry anyway.
+	node.InviteExpiry = nil
+	if err := s.store.UpdateRemoteNode(node); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, actor, _ := auth.Principal(c)
+	_ = s.store.WriteAudit(&model.AuditLog{
+		Action:  "revoke_mgmt_token",
+		Actor:   actor,
+		ActorIP: s.clientIP(c),
+		Detail:  fmt.Sprintf("node=%d direction=%s prev_jti=%s", node.ID, node.Direction, previousJTI),
+	})
+	c.JSON(http.StatusOK, node)
+}
+
 // handleRevokeRemoteNode tears down a pairing. Both sides perform the
 // same operation: stop + delete the auto-created tunnel, mark the
 // RemoteNode as revoked (kept for audit), and audit-log the action.
@@ -658,9 +734,13 @@ func (s *Server) handleRemoteRedeemToken(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "remote pairing not active"})
 		return
 	}
-	if node.MgmtTokenJTI != "" && node.MgmtTokenJTI != claims.JTI {
-		// Only the JTI we minted is allowed; any other proves the token
-		// was issued by a different invitation cycle.
+	// Only the JTI currently on record is accepted. Empty means the
+	// operator just called /revoke-token to invalidate every outstanding
+	// mgmt_token without tearing down the pairing — refuse those too.
+	// (handleCreateInvitation always sets a non-empty JTI when it mints
+	// the row, so the only empty-JTI state on a `manages_me` row is the
+	// explicit revoke-token outcome.)
+	if node.MgmtTokenJTI == "" || node.MgmtTokenJTI != claims.JTI {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "mgmt token does not match this pairing"})
 		return
 	}

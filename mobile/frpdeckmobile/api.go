@@ -58,14 +58,39 @@ type LogHandler interface {
 	OnLog(line string)
 }
 
+// VpnRequestHandler is the Java-side interface that receives "this
+// tunnel just went active and asks for device-level VPN routing"
+// notifications (P6′/P7′). The Android shell installs at most one
+// handler per process; the implementation typically:
+//
+//  1. Caches the latest socks5 URL for FrpDeckVpnService to consume.
+//  2. If the user has already granted VpnService permission, posts a
+//     foreground intent to start the service immediately.
+//  3. Otherwise emits a small in-app toast / system notification asking
+//     the user to open the WebView's "Android settings" page and tap
+//     "Request VPN permission" once.
+//
+// `tunnelID` is widened to int because gomobile's Java mapping does not
+// expose unsigned types — the conversion from uint is harmless because
+// our IDs come from a SQLite autoincrement column that fits int64
+// trivially.
+//
+// `socks5URL` is pre-formatted as `socks5://<host>:<port>`. The handler
+// must NOT parse or reconstruct it; just forward as-is to tun2socks.
+type VpnRequestHandler interface {
+	OnVpnRequest(tunnelID int, tunnelName string, socks5URL string)
+}
+
 // state is the package-global runtime container. We deliberately keep it
 // global because the Android host calls Start/Stop/IsRunning/AdminToken
 // on a shared instance — there is no concept of "multiple FrpDeck servers
 // inside one process" on mobile.
 var (
-	stateMu  sync.Mutex
-	current  *mobileRuntime
-	logSinks sync.Map // *logSink -> struct{}
+	stateMu       sync.Mutex
+	current       *mobileRuntime
+	logSinks      sync.Map // *logSink -> struct{}
+	vpnHandlerMu  sync.RWMutex
+	vpnHandler    VpnRequestHandler
 )
 
 type mobileRuntime struct {
@@ -204,9 +229,12 @@ func startInternal(cfg *config.Config) (*mobileRuntime, error) {
 	apiSrv.Router(r)
 	mountStatic(r)
 
-	// Subscribe driver event bus to log handlers. The mobile UI
-	// surfaces these as the live "logs" panel without polling.
-	go pumpEvents(ctx, drv)
+	// Subscribe driver event bus to log handlers + VPN-request
+	// dispatcher. The mobile UI surfaces logs as the live "logs"
+	// panel without polling; VpnRequestHandler is consulted when a
+	// tunnel transitions to active so the Android shell can bring
+	// up VpnService for SOCKS5 visitor tunnels.
+	go pumpEvents(ctx, drv, s)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
@@ -355,6 +383,65 @@ func ClearLogHandlers() {
 	})
 }
 
+// SetVpnRequestHandler installs the single Java handler that receives
+// "tunnel needs VPN" callbacks. Passing nil clears the handler. Setting
+// a new handler over an existing one drops the previous registration —
+// per-process semantics match the Android single-foreground-service
+// model.
+//
+// Safe to call before or after Start; the handler is consulted only when
+// a tunnel actually transitions to active. The Android shell typically
+// registers in `FrpDeckForegroundService.onCreate` and clears in
+// `onDestroy` to avoid leaks across service restarts.
+func SetVpnRequestHandler(h VpnRequestHandler) {
+	vpnHandlerMu.Lock()
+	defer vpnHandlerMu.Unlock()
+	vpnHandler = h
+}
+
+// ClearVpnRequestHandler is sugar for `SetVpnRequestHandler(nil)`. The
+// distinct method exists because gomobile-generated bindings make
+// nullable parameters awkward on the Java side, so callers prefer a
+// no-arg method when they want to detach.
+func ClearVpnRequestHandler() {
+	vpnHandlerMu.Lock()
+	defer vpnHandlerMu.Unlock()
+	vpnHandler = nil
+}
+
+// dispatchVpnRequest fires the registered VpnRequestHandler if any. The
+// caller is expected to have already filtered down to tunnels that
+// actually need device-level routing (frpcd.TunnelRequiresSystemRoute).
+//
+// The dispatch is best-effort: panics inside the Java handler are
+// recovered so a buggy implementation cannot crash the engine goroutine.
+func dispatchVpnRequest(t *model.Tunnel) {
+	if t == nil {
+		return
+	}
+	vpnHandlerMu.RLock()
+	h := vpnHandler
+	vpnHandlerMu.RUnlock()
+	if h == nil {
+		return
+	}
+	ip := t.LocalIP
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
+	if t.LocalPort <= 0 {
+		// No port bound yet — the user is likely still configuring the
+		// tunnel. Skipping dispatch is correct because the eventual
+		// transition to a real port will re-trigger this codepath.
+		return
+	}
+	url := fmt.Sprintf("socks5://%s:%d", ip, t.LocalPort)
+	go func(tunnelID int, tunnelName, socks5URL string) {
+		defer func() { _ = recover() }()
+		h.OnVpnRequest(tunnelID, tunnelName, socks5URL)
+	}(int(t.ID), t.Name, url)
+}
+
 type logSink struct {
 	handler LogHandler
 }
@@ -362,7 +449,14 @@ type logSink struct {
 // pumpEvents fans the driver bus to every registered LogHandler. Slow
 // handlers do not back-pressure the bus (the bus itself drops slow
 // consumers, see frpcd/event.go), so we keep this goroutine simple.
-func pumpEvents(ctx context.Context, drv frpcd.FrpDriver) {
+//
+// In addition to fanning out log lines, this loop watches for tunnel
+// transitions to active/running and — when the tunnel matches the
+// "needs system route" rule — fires the VpnRequestHandler so the
+// Android shell can bring VpnService up. The check is cheap (single DB
+// row lookup) and only runs on tunnel-state events, so the embedded
+// driver's 3-second poll cadence dictates the upper bound on latency.
+func pumpEvents(ctx context.Context, drv frpcd.FrpDriver, st *store.Store) {
 	ch, cancel := drv.Subscribe()
 	defer cancel()
 
@@ -389,8 +483,25 @@ func pumpEvents(ctx context.Context, drv frpcd.FrpDriver) {
 			if line != "" {
 				flush(line)
 			}
+			if ev.Type == frpcd.EventTunnelState && ev.TunnelID > 0 && isLiveState(ev.State) {
+				if t, err := st.GetTunnel(ev.TunnelID); err == nil && t != nil && frpcd.TunnelRequiresSystemRoute(t) {
+					dispatchVpnRequest(t)
+				}
+			}
 		}
 	}
+}
+
+// isLiveState returns true for the frp/lifecycle phase strings that
+// indicate "the tunnel is operational and accepting traffic now". The
+// list mirrors the StatusActive normalisation done by the embedded /
+// subprocess drivers (see internal/frpcd/embedded.go::translateState).
+func isLiveState(state string) bool {
+	switch state {
+	case "running", "active", "ready", "up":
+		return true
+	}
+	return false
 }
 
 func formatEvent(ev frpcd.Event) string {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, RefreshCw, Trash2, ExternalLink, Copy, ShieldAlert, RotateCcw, Upload } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2, ExternalLink, Copy, ShieldAlert, RotateCcw, Upload, KeyRound } from 'lucide-vue-next'
 import QRCode from 'qrcode'
 import jsQR from 'jsqr'
 
@@ -32,6 +32,7 @@ import {
   createRemoteInvitation,
   redeemRemoteInvitation,
   revokeRemoteNode,
+  revokeRemoteMgmtToken,
   refreshRemoteInvitation,
   type RemoteNode,
   type RemoteDirection,
@@ -303,6 +304,24 @@ async function revoke(node: RemoteNode) {
   }
 }
 
+// revokeToken voids the currently outstanding mgmt_token for a
+// `manages_me` row. The pairing itself stays alive; only the QR /
+// token that has been (or is suspected to have been) leaked is
+// invalidated. Operator typically follows with `refreshInvite` to
+// hand a fresh QR to the legitimate redeemer.
+async function revokeToken(node: RemoteNode) {
+  if (!window.confirm(t('remote.revoke_token_confirm'))) return
+  try {
+    await revokeRemoteMgmtToken(node.id)
+    Message.success(t('remote.token_revoked'))
+    await reloadNodes()
+  } catch (err) {
+    Message.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      ?? (err as Error)?.message
+      ?? t('msg.opFailed'))
+  }
+}
+
 onMounted(async () => {
   if (!passwordModeOk.value) return
   await Promise.all([reloadEndpoints(), reloadNodes()])
@@ -425,6 +444,16 @@ onMounted(async () => {
                 >
                   <RotateCcw class="size-4" />
                   <span class="hidden md:inline">{{ t('remote.refresh_invite') }}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  :disabled="n.status === 'revoked'"
+                  :title="t('remote.revoke_token')"
+                  @click="revokeToken(n)"
+                >
+                  <KeyRound class="size-4" />
+                  <span class="hidden md:inline">{{ t('remote.revoke_token') }}</span>
                 </Button>
                 <Button size="sm" variant="ghost" class="text-destructive" @click="revoke(n)">
                   <Trash2 class="size-4" />

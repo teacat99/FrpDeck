@@ -17,8 +17,10 @@ import {
   Sun,
   SunMoon,
   Eye,
-  EyeOff
+  EyeOff,
+  Smartphone
 } from 'lucide-vue-next'
+import { isNativeBridge, nativeIsAndroid } from '@/composables/useNativeBridge'
 import LanguageIcon from '@/components/LanguageIcon.vue'
 import { setLocale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -97,6 +99,8 @@ interface NavItem {
   icon: typeof Home
 }
 
+const isAndroidShell = computed(() => isNativeBridge() && nativeIsAndroid())
+
 const navItems = computed<NavItem[]>(() => {
   const base: NavItem[] = [
     { key: 'home', label: t('menu.home'), icon: Home },
@@ -110,6 +114,9 @@ const navItems = computed<NavItem[]>(() => {
     }
     base.push({ key: 'profiles', label: t('menu.profiles'), icon: Layers })
     base.push({ key: 'settings', label: t('menu.settings'), icon: Settings })
+  }
+  if (isAndroidShell.value) {
+    base.push({ key: 'android', label: t('menu.android'), icon: Smartphone })
   }
   return base
 })

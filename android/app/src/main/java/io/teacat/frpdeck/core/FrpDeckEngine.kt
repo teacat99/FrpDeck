@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import frpdeckmobile.Frpdeckmobile
 import frpdeckmobile.LogHandler
-import io.teacat.frpdeck.core.api.ApiClient
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -17,10 +16,14 @@ import java.io.File
  * Thin wrapper over the gomobile-generated [Frpdeckmobile] singleton.
  *
  * The engine exposes:
- *   - [running] flow so Compose can subscribe to start/stop transitions
+ *   - [running] flow so callers can subscribe to start/stop transitions
  *   - [logs] flow that fans out lines from the Go side (via LogHandler)
- *   - [apiClient] preconfigured Retrofit instance pointing at the live
- *     loopback listener; null when the engine is stopped
+ *   - [listenAddr] the loopback `host:port` the embedded server binds
+ *
+ * Native UI was removed in P6′/P7′; the WebView shell talks directly to
+ * `http://${listenAddr}/` so the engine no longer ships a Retrofit
+ * client — the same Vue SPA used by the desktop / Docker builds runs
+ * unchanged in the embedded WebView.
  *
  * All coroutine usage is deferred to consumers — this class stays purely
  * synchronous so it can be instantiated from Application.onCreate without
@@ -53,10 +56,6 @@ class FrpDeckEngine(private val context: Context) {
     @Volatile
     private var logHandle: String = ""
 
-    @Volatile
-    private var _apiClient: ApiClient? = null
-    val apiClient: ApiClient? get() = _apiClient
-
     /**
      * Boot the embedded server. Idempotent — calling Start while running
      * is a no-op (matches the gomobile contract which would error).
@@ -66,7 +65,6 @@ class FrpDeckEngine(private val context: Context) {
         if (Frpdeckmobile.isRunning()) {
             _running.value = true
             _listenAddr.value = Frpdeckmobile.listenAddr()
-            ensureApiClient()
             return Result.success(Unit)
         }
         return try {
@@ -80,7 +78,6 @@ class FrpDeckEngine(private val context: Context) {
             attachLogHandler()
             _listenAddr.value = Frpdeckmobile.listenAddr()
             _running.value = true
-            ensureApiClient()
             Log.i(tag, "started on ${_listenAddr.value}")
             Result.success(Unit)
         } catch (t: Throwable) {
@@ -100,7 +97,6 @@ class FrpDeckEngine(private val context: Context) {
             Frpdeckmobile.stop()
             _running.value = false
             _listenAddr.value = ""
-            _apiClient = null
             Log.i(tag, "stopped")
             Result.success(Unit)
         } catch (t: Throwable) {
@@ -130,12 +126,5 @@ class FrpDeckEngine(private val context: Context) {
             Frpdeckmobile.removeLogHandler(logHandle)
             logHandle = ""
         }
-    }
-
-    private fun ensureApiClient() {
-        val addr = _listenAddr.value
-        if (addr.isEmpty()) return
-        val token = adminToken()
-        _apiClient = ApiClient.create(baseUrl = "http://$addr/", bearer = token)
     }
 }
