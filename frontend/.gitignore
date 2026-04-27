@@ -2,3 +2,14 @@ node_modules/
 dist/
 .vite/
 *.log
+
+# Stray TypeScript compilation artefacts under src/. We never check in
+# emitted JS — Vite consumes the .ts/.vue sources directly. Ignoring
+# these prevents IDE-driven `tsc` runs (or the VS Code "Build TS" task)
+# from polluting the source tree, which previously caused Vite's
+# default extension resolver (.js > .ts) to pick up stale .js files
+# and shadow newer .ts edits at build time.
+src/**/*.js
+src/**/*.js.map
+src/**/*.vue.js
+src/**/*.vue.js.map

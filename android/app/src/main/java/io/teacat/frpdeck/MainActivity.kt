@@ -182,12 +182,26 @@ class MainActivity : AppCompatActivity() {
                 allowContentAccess = false
                 mediaPlaybackRequiresUserGesture = false
             }
-            // Enable WebView contents-debugging on debug builds so the
-            // user can `chrome://inspect` the rendered SPA from a
-            // tethered host.
-            if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
+            // Enable WebView contents-debugging unconditionally. The
+            // WebView only ever loads `http://127.0.0.1:18080/` and the
+            // `webview_devtools_remote_<pid>` socket is a unix-domain
+            // socket reachable only via `adb`, so opening this is no
+            // worse than installing the APK in the first place. Real
+            // users will appreciate being able to `chrome://inspect`
+            // their device when something goes wrong.
+            WebView.setWebContentsDebuggingEnabled(true)
 
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(
+                    consoleMessage: android.webkit.ConsoleMessage,
+                ): Boolean {
+                    Log.i(
+                        "FrpDeck/Web",
+                        "${consoleMessage.messageLevel()}: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})",
+                    )
+                    return true
+                }
+            }
             webViewClient = LoopbackOnlyWebViewClient()
         }
 

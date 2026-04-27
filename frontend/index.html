@@ -24,6 +24,41 @@
           for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', c);
         } catch (e) {}
       })();
+      // Native shell purge: when the SPA is hosted by the Android WebView
+      // shell (window.frpdeck is injected via addJavascriptInterface) we
+      // do NOT want a service worker — the embedded loopback server is
+      // always live and a stale precache from a previous APK version
+      // would actively block upgrades by serving the old bundle. Run
+      // this BEFORE main.ts so even a left-over SW from a prior install
+      // gets nuked on the very first load after upgrade.
+      (function () {
+        try {
+          if (typeof window.frpdeck !== 'object' || !window.frpdeck) return;
+          if (!('serviceWorker' in navigator)) return;
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            if (!regs || regs.length === 0) return;
+            Promise.all(regs.map(function (r) { return r.unregister(); }))
+              .then(function () {
+                if (window.caches && caches.keys) {
+                  return caches.keys().then(function (keys) {
+                    return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                  });
+                }
+              })
+              .then(function () {
+                // Reload once so the freshly-served bundle wins. Use a
+                // sentinel to avoid an infinite loop if something keeps
+                // re-registering a SW.
+                var marker = '__frpdeck_sw_purged__';
+                if (!sessionStorage.getItem(marker)) {
+                  sessionStorage.setItem(marker, '1');
+                  location.reload();
+                }
+              })
+              .catch(function () {});
+          }).catch(function () {});
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>
