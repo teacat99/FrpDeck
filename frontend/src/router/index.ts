@@ -88,6 +88,29 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // Short-circuit before LoginView ever mounts. There are three ways
+  // a navigation can land on /login:
+  //   1. Direct URL entry / bookmark
+  //   2. router.push from elsewhere in the app
+  //   3. axios 401 interceptor calling location.assign('/login')
+  //      (whole-page reload)
+  // In all three cases the previous LoginView.onMounted fallback used
+  // to flash the form for a tick before redirecting. Doing the
+  // redirect here keeps the landing surface deterministic — when the
+  // backend reports `auth_mode == none` the operator never sees the
+  // form. We re-fetch status when the bearer is empty so a server-side
+  // mode flip (password→none after admin tweaks settings + user
+  // logged out) is picked up without forcing a manual reload.
+  if (to.name === 'login' && !auth.token) {
+    await auth.refreshStatus()
+  }
+  if (to.name === 'login' && !auth.required) {
+    const fallback =
+      (typeof to.query.redirect === 'string' && to.query.redirect) || '/'
+    next(fallback)
+    return
+  }
+
   if (to.name !== 'login' && auth.required && !auth.token) {
     next({ name: 'login', query: { redirect: to.fullPath } })
     return
