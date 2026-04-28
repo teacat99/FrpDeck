@@ -73,6 +73,7 @@ func (p *program) run() {
 	}
 
 	srv := startHTTP(rt)
+	rt.StartControl(daemonVersion())
 
 	p.mu.Lock()
 	p.rt = rt

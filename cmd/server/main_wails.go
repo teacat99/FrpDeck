@@ -84,6 +84,7 @@ func main() {
 	} else {
 		log.Printf("desktop: LAN listener disabled (FRPDECK_DESKTOP_LISTEN)")
 	}
+	rt.StartControl(appVersion)
 
 	// Wails' SingleInstanceLock raises a UNIX socket / named mutex on
 	// the unique id and forwards args to the running instance, then

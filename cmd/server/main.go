@@ -38,6 +38,10 @@ import (
 // sentinel and fall back to debug.ReadBuildInfo() in runVersion.
 var appVersion = "dev"
 
+// daemonVersion is exposed to the control package so a CLI ping
+// returns the same string as `frpdeck-server version`.
+func daemonVersion() string { return appVersion }
+
 func main() {
 	cfg := buildServiceConfig()
 	prg := newProgram()

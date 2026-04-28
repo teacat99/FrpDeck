@@ -32,6 +32,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/auth"
 	"github.com/teacat99/FrpDeck/internal/captcha"
 	"github.com/teacat99/FrpDeck/internal/config"
+	"github.com/teacat99/FrpDeck/internal/control"
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
 	"github.com/teacat99/FrpDeck/internal/notify"
@@ -51,6 +52,7 @@ type Runtime struct {
 	Lifecycle *lifecycle.Manager
 	Driver    frpcd.FrpDriver
 	Auth      *auth.Authenticator
+	Settings  *runtime.Settings
 
 	// AdminID / AdminUsername identify the seed administrator. Wails
 	// uses these to mint an in-process JWT for tray-driven HTTP calls
@@ -58,6 +60,12 @@ type Runtime struct {
 	// than skipping the API entirely.
 	AdminID       uint
 	AdminUsername string
+
+	// Control is the local Unix-socket RPC server the standalone
+	// `frpdeck` CLI uses to ask the running daemon to reconcile
+	// state after Direct-DB mutations. Only started when bootstrap
+	// runs inside a real daemon (StartControl is opt-in).
+	Control *control.Server
 
 	// rootCtx fans out to the lifecycle manager and any tunnel runners
 	// the driver spawns. Cancelling it is the canonical signal for
@@ -69,6 +77,10 @@ type Runtime struct {
 // Close tears the stack down in reverse order of bootstrap. Safe to
 // call once; idempotent on the second call.
 func (r *Runtime) Close() {
+	if r.Control != nil {
+		_ = r.Control.Close()
+		r.Control = nil
+	}
 	if r.cancelRoot != nil {
 		r.cancelRoot()
 		r.cancelRoot = nil
@@ -76,6 +88,40 @@ func (r *Runtime) Close() {
 	if r.Lifecycle != nil {
 		r.Lifecycle.Stop()
 	}
+}
+
+// StartControl opens the local control socket so the standalone
+// `frpdeck` CLI can ping us / trigger reconciliation. Returns nil
+// if the socket cannot be opened — a missing control channel must
+// not prevent the daemon from serving HTTP, since the user can
+// still administer via the Web UI.
+//
+// Called from main()/main_wails() AFTER bootstrap so the failure
+// path is opt-in and the headless smoke tests (which never call
+// StartControl) keep their bootstrap output stable.
+func (r *Runtime) StartControl(version string) {
+	srv := control.New(r.Cfg.DataDir, control.Handlers{
+		Version:    func() string { return version },
+		ListenAddr: func() string { return r.Cfg.Listen },
+		Reconcile: func(_ context.Context) error {
+			if r.Lifecycle == nil {
+				return fmt.Errorf("lifecycle not running")
+			}
+			return r.Lifecycle.Reconcile()
+		},
+		ReloadRuntime: func(_ context.Context) error {
+			if r.Settings == nil {
+				return fmt.Errorf("runtime settings not loaded")
+			}
+			return r.Settings.LoadFromKV(r.Store.LookupSetting)
+		},
+	})
+	if err := srv.Start(); err != nil {
+		log.Printf("[control] disabled: %v", err)
+		return
+	}
+	r.Control = srv
+	log.Printf("[control] socket ready at %s", srv.SocketPath())
 }
 
 // bootstrap performs the full boot sequence. Failure here is fatal —
@@ -150,6 +196,7 @@ func bootstrap() (*Runtime, error) {
 		Lifecycle:     lm,
 		Driver:        drv,
 		Auth:          authn,
+		Settings:      rt,
 		AdminID:       adminID,
 		AdminUsername: adminUsername,
 		rootCtx:       ctx,
