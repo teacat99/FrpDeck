@@ -17,7 +17,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -98,6 +100,127 @@ func (c *Client) ReloadRuntime(ctx context.Context) error {
 func (c *Client) Shutdown(ctx context.Context) error {
 	_, err := c.do(ctx, Request{Command: CmdShutdown})
 	return err
+}
+
+// SubscribeOptions narrows the event stream daemon-side. All fields
+// are optional; zero values mean "no filter on this dimension".
+type SubscribeOptions struct {
+	// Types restricts which EventType values are forwarded. An empty
+	// slice means "all types".
+	Types []string
+
+	// EndpointID restricts events to a single endpoint. 0 = all.
+	EndpointID uint
+
+	// TunnelID restricts events to a single tunnel. 0 = all.
+	TunnelID uint
+}
+
+// Subscribe opens a streaming connection and returns a channel of
+// raw event payloads (as JSON bytes). The CLI is responsible for
+// decoding into the concrete frpcd.Event struct so this package
+// stays free of a frpcd import.
+//
+// The returned cancel function closes the underlying connection,
+// terminating the daemon-side push loop. Cancelling ctx has the
+// same effect (a watcher goroutine watches ctx.Done()).
+//
+// If the daemon is not running the call returns ErrDaemonNotRunning;
+// the channel is never produced.
+func (c *Client) Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan json.RawMessage, func(), error) {
+	if !c.SocketExists() {
+		return nil, nil, ErrDaemonNotRunning
+	}
+	conn, err := dialSocket(c.socketPath)
+	if err != nil {
+		if isNotRunningErr(err) {
+			return nil, nil, ErrDaemonNotRunning
+		}
+		return nil, nil, err
+	}
+
+	args := map[string]string{}
+	if len(opts.Types) > 0 {
+		args["type"] = strings.Join(opts.Types, ",")
+	}
+	if opts.EndpointID != 0 {
+		args["endpoint_id"] = strconv.FormatUint(uint64(opts.EndpointID), 10)
+	}
+	if opts.TunnelID != 0 {
+		args["tunnel_id"] = strconv.FormatUint(uint64(opts.TunnelID), 10)
+	}
+
+	buf, err := Encode(Request{Command: CmdSubscribe, Args: args})
+	if err != nil {
+		conn.Close()
+		return nil, nil, err
+	}
+	// Allow up to 5s for the server to ack the subscription. Once
+	// the ack is in we clear the deadline so events can stream
+	// without artificial timeouts.
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Write(buf); err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("write subscribe: %w", err)
+	}
+	_ = conn.SetWriteDeadline(time.Time{})
+
+	r := bufio.NewReader(conn)
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	ackLine, err := r.ReadString('\n')
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("read ack: %w", err)
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	var ack Response
+	if err := json.Unmarshal([]byte(ackLine), &ack); err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("decode ack: %w", err)
+	}
+	if !ack.Ok {
+		conn.Close()
+		return nil, nil, errors.New(ack.Error)
+	}
+
+	out := make(chan json.RawMessage, 64)
+	cancelOnce := func() func() {
+		var once sync.Once
+		return func() { once.Do(func() { conn.Close() }) }
+	}()
+
+	go func() {
+		<-ctx.Done()
+		cancelOnce()
+	}()
+
+	go func() {
+		defer close(out)
+		defer cancelOnce()
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			var resp Response
+			if err := json.Unmarshal([]byte(line), &resp); err != nil {
+				continue
+			}
+			if !resp.Ok {
+				return
+			}
+			if len(resp.Event) == 0 {
+				continue
+			}
+			select {
+			case out <- resp.Event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, cancelOnce, nil
 }
 
 // ErrDaemonNotRunning is returned when the socket file is not on

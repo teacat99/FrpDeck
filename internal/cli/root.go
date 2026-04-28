@@ -70,6 +70,11 @@ func NewRootCmd() *cobra.Command {
 		cmds.NewFrpcCmd(opts),
 		cmds.NewTemplateCmd(opts),
 		cmds.NewImportCmd(opts),
+		cmds.NewLogsCmd(opts),
+		cmds.NewWatchCmd(opts),
+		cmds.NewRemoteCmd(opts),
+		cmds.NewCompletionCmd(),
+		cmds.NewDocCmd(),
 	)
 	return root
 }

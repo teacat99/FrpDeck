@@ -90,6 +90,64 @@ sudo systemctl status frpdeck
 
 服务相关子命令：`install / uninstall / start / stop / restart / status / version`。
 
+### `frpdeck` CLI（v0.2.x，独立二进制）
+
+`frpdeck-server` 是常驻进程；与之配套的还有一个独立的 **本机管理 CLI**
+`frpdeck`，专为脚本化运维 / daemon 起不来时的自救场景设计。两个二进制
+完全独立分发，按需安装。
+
+CLI 默认走 Direct-DB（`/var/lib/frpdeck/frpdeck.db`，可用 `--data-dir` 覆盖）
++ 本机 Unix socket 控制通道（`<data_dir>/frpdeck.sock`，0600 权限）。
+所有 mutating 命令做完 SQLite 写后会 best-effort ping 一下 daemon
+触发 `lifecycle.Reconcile()`，daemon 没在跑就静默继续——SQLite 写已落库，
+下次 daemon 启动自动看到。
+
+```bash
+# 自救（daemon 起不来时也能用）
+frpdeck doctor                          # 4 项检查：data-dir / db / 控制通道 / frpc 二进制
+frpdeck user passwd admin               # 直接改 SQLite 重置密码
+frpdeck auth mode password              # 切换认证模式（修改 env 文件，需要 systemctl restart）
+frpdeck db backup /tmp/before.db        # SQLite 在线热备份
+frpdeck db restore /tmp/before.db       # 还原（daemon 在跑时拒绝，--force 跳过）
+
+# 全量 CRUD（daemon 在跑时立即生效）
+frpdeck endpoint add --name nas --addr nas.example.com --port 7000 --token sekret
+frpdeck tunnel add --endpoint nas --name ssh --type tcp --local-port 22 --remote-port 22022
+frpdeck tunnel add --endpoint nas --name demo --duration 30m \
+  --type tcp --local-port 8080 --remote-port 18080      # 临时隧道
+frpdeck tunnel extend demo --duration 1h                # 续期
+frpdeck profile add --name homelab --bind-tunnel ssh --bind-endpoint office
+frpdeck profile activate homelab                        # 一键切换 active set
+
+# 模板 / 导入 / runtime 设置
+frpdeck template list
+frpdeck template apply ssh --endpoint nas --name homelab-ssh --remote-port 12022
+frpdeck import frpc.toml --endpoint nas --default-on-conflict rename
+frpdeck runtime set max_duration_hours 12               # 写 KV + ping reload
+
+# 实时观测
+frpdeck logs --follow                                   # 流式日志，ANSI 颜色，Ctrl+C 退出
+frpdeck logs --type log --tunnel ssh --follow           # 带过滤
+frpdeck watch tunnels                                   # 5s 刷新 tunnel 表
+
+# 远端节点（P10-C 仅 list/get；invite/refresh/revoke 走 Web UI，P10-D 补 socket 路径）
+frpdeck remote nodes list
+frpdeck remote nodes get <id|name>
+
+# Shell 补全 / man page
+frpdeck completion bash > /etc/bash_completion.d/frpdeck
+frpdeck completion zsh  > "${fpath[1]}/_frpdeck"
+frpdeck completion fish > ~/.config/fish/completions/frpdeck.fish
+frpdeck doc man /usr/local/share/man/man1/
+
+# 输出格式（脚本友好）
+frpdeck endpoint list -o json | jq '.[] | select(.enabled == true)'
+frpdeck tunnel list   -o yaml --no-headers
+```
+
+引用形式：`<id>` / 大小写不敏感 `<name>` / 二义 tunnel 用 `<endpoint>/<name>` 消歧。
+完整子命令清单 `frpdeck --help`，每个子命令均带 `--help` 与生成的 man page。
+
 ### Windows / macOS 桌面 GUI（Wails，v0.1.1 polish 中）
 
 🚧 P1-D 代码已完成（headless / 系统服务路径已稳定），桌面 GUI 真机验收 + macOS 托盘

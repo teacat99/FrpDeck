@@ -26,6 +26,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +58,18 @@ type Handlers struct {
 	// Shutdown begins graceful daemon shutdown. May return after
 	// initiating shutdown — the daemon then exits asynchronously.
 	Shutdown func(ctx context.Context) error
+
+	// Subscribe attaches a new event-bus listener. The returned
+	// channel must close (and the cancel must be safe to call
+	// twice) once the listener is detached. The returned events
+	// are encoded as raw JSON so this package does not need to
+	// depend on internal/frpcd.
+	//
+	// When nil, CmdSubscribe responds with "no handler" and the
+	// connection closes immediately — keeping the protocol
+	// forward-compatible with daemon builds that do not link the
+	// driver event bus.
+	Subscribe func(ctx context.Context) (<-chan json.RawMessage, func())
 }
 
 // Server accepts inbound control-channel connections and dispatches
@@ -184,10 +198,9 @@ func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	// Each connection carries one request/response pair. The 5s
-	// deadline makes a stuck CLI invisible to the daemon almost
-	// immediately; legitimate handlers (Reconcile, ReloadRuntime)
-	// finish in well under a second.
+	// One-shot RPCs use the 5s deadline below. CmdSubscribe is the
+	// only streaming command and clears the deadline before
+	// entering its push loop — see s.handleSubscribe.
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	r := bufio.NewReader(conn)
@@ -207,6 +220,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
+	if req.Command == CmdSubscribe {
+		s.handleSubscribe(conn, req)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resp := s.dispatch(ctx, req)
@@ -218,6 +236,81 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 	if _, err := conn.Write(buf); err != nil {
 		log.Printf("control: write response: %v", err)
+	}
+}
+
+// handleSubscribe drives the streaming path. The flow is:
+//
+//  1. Drop the per-RPC deadline; the connection now lives until
+//     the client closes it (or the daemon shuts down).
+//  2. Send a single ack line so the client knows the subscription
+//     is live. After this, every newline-delimited Response carries
+//     one event in Response.Event.
+//  3. Loop, forwarding events with a short per-write deadline so a
+//     stuck client cannot wedge the daemon's event bus indefinitely.
+//  4. Watch for client disconnect on a background goroutine — we
+//     read into a 1-byte sink so EOF flips a flag the writer
+//     polls between events. Without this, a client that simply
+//     closes its socket would leave the goroutine blocked on the
+//     next Publish.
+func (s *Server) handleSubscribe(conn net.Conn, req Request) {
+	if s.handlers.Subscribe == nil {
+		writeErr(conn, "subscribe: no handler")
+		return
+	}
+	_ = conn.SetDeadline(time.Time{}) // clear
+
+	allow := parseTypeFilter(req.Args["type"])
+	endpointID := parseUintArg(req.Args["endpoint_id"])
+	tunnelID := parseUintArg(req.Args["tunnel_id"])
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, unsub := s.handlers.Subscribe(ctx)
+	defer unsub()
+
+	// Ack: tells the CLI "subscription live". Errors here are
+	// terminal — if we cannot even send the ack, the connection is
+	// already gone.
+	if buf, err := Encode(Response{Ok: true}); err == nil {
+		if _, err := conn.Write(buf); err != nil {
+			return
+		}
+	}
+
+	// Detect client-side disconnect by reading from the connection
+	// in the background; any read activity (including EOF) cancels
+	// our context so the writer loop exits.
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			if _, err := conn.Read(buf); err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if !subscribePassesFilter(ev, allow, endpointID, tunnelID) {
+				continue
+			}
+			frame, err := Encode(Response{Ok: true, Event: ev})
+			if err != nil {
+				continue
+			}
+			_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+			if _, err := conn.Write(frame); err != nil {
+				return
+			}
+		}
 	}
 }
 
@@ -289,3 +382,70 @@ func removeStaleSocket(path string) error {
 // solution would track the count explicitly. Kept as a stub so we
 // can swap implementations without touching the call site.
 func connGoroutineCount(_ *sync.WaitGroup) int { return 0 }
+
+// parseTypeFilter splits the "type" arg on subscribe into a
+// non-empty allow-list. Empty input returns nil (= "no filter,
+// pass everything"); an explicit list of unknown values still
+// returns a non-nil set so the comparison is unambiguous.
+func parseTypeFilter(raw string) map[string]struct{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	out := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out[part] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// parseUintArg returns 0 on absence/parse-failure; subscribe filters
+// treat 0 as "no filter on this dimension".
+func parseUintArg(raw string) uint {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(v)
+}
+
+// subscribePassesFilter decodes just enough of the raw event JSON to
+// answer the per-subscriber filter questions, then re-uses the raw
+// bytes for the wire frame. Decoding into a private struct avoids
+// pulling in the frpcd type from this layer.
+func subscribePassesFilter(raw json.RawMessage, allow map[string]struct{}, endpointID, tunnelID uint) bool {
+	if len(allow) == 0 && endpointID == 0 && tunnelID == 0 {
+		return true
+	}
+	var hdr struct {
+		Type       string `json:"type"`
+		EndpointID uint   `json:"endpoint_id,omitempty"`
+		TunnelID   uint   `json:"tunnel_id,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &hdr); err != nil {
+		return true // malformed JSON: pass through, CLI surfaces it
+	}
+	if len(allow) > 0 {
+		if _, ok := allow[hdr.Type]; !ok {
+			return false
+		}
+	}
+	if endpointID != 0 && hdr.EndpointID != endpointID {
+		return false
+	}
+	if tunnelID != 0 && hdr.TunnelID != tunnelID {
+		return false
+	}
+	return true
+}

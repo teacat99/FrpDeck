@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -114,6 +115,14 @@ func (r *Runtime) StartControl(version string) {
 				return fmt.Errorf("runtime settings not loaded")
 			}
 			return r.Settings.LoadFromKV(r.Store.LookupSetting)
+		},
+		Subscribe: func(ctx context.Context) (<-chan json.RawMessage, func()) {
+			if r.Driver == nil {
+				ch := make(chan json.RawMessage)
+				close(ch)
+				return ch, func() {}
+			}
+			return adaptDriverSubscribe(ctx, r.Driver)
 		},
 	})
 	if err := srv.Start(); err != nil {
@@ -221,6 +230,41 @@ func startHTTP(rt *Runtime) *http.Server {
 		}
 	}()
 	return httpSrv
+}
+
+// adaptDriverSubscribe bridges the driver's typed Event channel to
+// the json.RawMessage channel the control package consumes. We
+// marshal each event in the bridge goroutine so the control server
+// stays free of an internal/frpcd import; the trade-off (one extra
+// allocation per event) is negligible compared to the 64-slot
+// EventBus buffer.
+func adaptDriverSubscribe(ctx context.Context, drv frpcd.FrpDriver) (<-chan json.RawMessage, func()) {
+	src, unsub := drv.Subscribe()
+	out := make(chan json.RawMessage, 64)
+	go func() {
+		defer close(out)
+		defer unsub()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-src:
+				if !ok {
+					return
+				}
+				raw, err := json.Marshal(ev)
+				if err != nil {
+					continue
+				}
+				select {
+				case out <- raw:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return out, unsub
 }
 
 // mountStatic serves the embedded frontend assets. The fallback
