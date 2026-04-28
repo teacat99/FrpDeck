@@ -322,6 +322,23 @@ func (s *Settings) applyLocked(key Key, raw string) error {
 	return nil
 }
 
+// Validate exposes the per-key validation rules without touching any
+// in-memory state. The standalone `frpdeck` CLI uses this to refuse
+// invalid values before they ever reach the SQLite KV table — so the
+// daemon's next ReloadFromKV() does not have to roll back a bad
+// persisted value at startup.
+func Validate(key Key, raw string) error {
+	if !isKnownKey(key) {
+		return fmt.Errorf("unknown key %q", key)
+	}
+	_, err := validateOnly(key, raw)
+	return err
+}
+
+// IsKnownKey reports whether key is a recognised runtime setting.
+// Exposed so the CLI can fail fast on typos before consulting the DB.
+func IsKnownKey(key Key) bool { return isKnownKey(key) }
+
 // validateOnly returns the parsed value (int or string) without
 // touching state. Used by both applyLocked and SetMany's dry run.
 func validateOnly(key Key, raw string) (any, error) {

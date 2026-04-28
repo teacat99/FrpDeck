@@ -63,6 +63,13 @@ func NewRootCmd() *cobra.Command {
 		cmds.NewAuthCmd(opts),
 		cmds.NewUserCmd(opts),
 		cmds.NewDBCmd(opts),
+		cmds.NewEndpointCmd(opts),
+		cmds.NewTunnelCmd(opts),
+		cmds.NewProfileCmd(opts),
+		cmds.NewRuntimeCmd(opts),
+		cmds.NewFrpcCmd(opts),
+		cmds.NewTemplateCmd(opts),
+		cmds.NewImportCmd(opts),
 	)
 	return root
 }
