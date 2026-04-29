@@ -11,7 +11,7 @@
   "dependencies": {
     "@internationalized/date": "^3.5.4",
     "@types/qrcode": "^1.5.6",
-    "@vueuse/core": "^11.2.0",
+    "@vueuse/core": "^14.2.1",
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
