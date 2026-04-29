@@ -3,7 +3,7 @@ module github.com/teacat99/FrpDeck
 go 1.25.0
 
 require (
-	fyne.io/systray v1.11.0
+	fyne.io/systray v1.12.0
 	github.com/coder/websocket v1.8.14
 	github.com/fatedier/frp v0.68.1
 	github.com/fatedier/golib v0.6.0
