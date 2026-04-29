@@ -14,7 +14,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/samber/lo v1.49.1
 	github.com/spf13/cobra v1.8.0
-	github.com/wailsapp/wails/v2 v2.10.2
+	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	golang.org/x/crypto v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -22,6 +22,7 @@ require (
 )
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/ajg/form v1.5.1 // indirect
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 // indirect
@@ -99,7 +100,7 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/vishvananda/netlink v1.3.0 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect
-	github.com/wailsapp/go-webview2 v1.0.19 // indirect
+	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xtaci/kcp-go/v5 v5.6.13 // indirect
