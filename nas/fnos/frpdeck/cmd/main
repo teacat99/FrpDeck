@@ -1,0 +1,171 @@
+#!/bin/bash
+# FrpDeck — start/stop/status entry for fnOS package framework.
+# Layout reference: https://developer.fnnas.com/docs/core-concepts/framework
+# Same shape as FNOSP/App.Bin.EasyTier-Web cmd/main.
+
+set -u
+
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+PID_FILE="${TRIM_PKGVAR}/frpdeck.pid"
+
+CONFIG_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
+DATA_DIR="${CONFIG_DIR}/data"
+CONFIG_JSON="${CONFIG_DIR}/config.json"
+DEFAULT_PORT=18080
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+# Always emit to TEMP_LOGFILE so fnOS can surface the message in a Dialog
+# when the script exits non-zero. Falls back to LOG_FILE for offline review.
+fail_msg() {
+    local msg="$1"
+    log_msg "ERROR: ${msg}"
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        echo "${msg}" >> "${TRIM_TEMP_LOGFILE}"
+    fi
+}
+
+ensure_dirs() {
+    mkdir -p "${TRIM_PKGVAR}" "${CONFIG_DIR}" "${DATA_DIR}" 2>/dev/null || true
+}
+
+ensure_config() {
+    if [ ! -f "${CONFIG_JSON}" ]; then
+        log_msg "Seeding default config: ${CONFIG_JSON}"
+        cat > "${CONFIG_JSON}" <<EOF
+{
+  "listen_port": ${DEFAULT_PORT}
+}
+EOF
+    fi
+}
+
+# Read listen_port out of the user-editable config.json. Falls back to
+# manifest's service_port (TRIM_SERVICE_PORT) and finally DEFAULT_PORT.
+get_listen_port() {
+    local port=""
+    if [ -f "${CONFIG_JSON}" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            port=$(jq -r '.listen_port // empty' "${CONFIG_JSON}" 2>/dev/null)
+        else
+            port=$(grep -o '"listen_port"[[:space:]]*:[[:space:]]*[0-9]\+' "${CONFIG_JSON}" \
+                | grep -o '[0-9]\+' | head -n1)
+        fi
+    fi
+    if [ -z "${port}" ] || [ "${port}" = "null" ]; then
+        port="${TRIM_SERVICE_PORT:-${DEFAULT_PORT}}"
+    fi
+    echo "${port}"
+}
+
+check_process() {
+    local pid=$1
+    if [ -z "${pid}" ]; then return 1; fi
+    if kill -0 "${pid}" 2>/dev/null; then return 0; else return 1; fi
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        local pid
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        if check_process "${pid}"; then
+            return 0
+        else
+            rm -f "${PID_FILE}"
+        fi
+    fi
+    return 1
+}
+
+start_process() {
+    if status; then
+        log_msg "FrpDeck already running"
+        return 0
+    fi
+
+    ensure_dirs
+    ensure_config
+
+    local bin="${TRIM_APPDEST}/server/frpdeck-server"
+    if [ ! -x "${bin}" ]; then
+        fail_msg "FrpDeck binary not found or not executable: ${bin}"
+        return 1
+    fi
+
+    local port
+    port=$(get_listen_port)
+
+    log_msg "Starting FrpDeck on port ${port} with data dir ${DATA_DIR}"
+
+    # Spawn detached. frpdeck-server reads FRPDECK_LISTEN / FRPDECK_DATA_DIR
+    # / FRPDECK_FRPCD_DRIVER from env (see internal/config/config.go).
+    FRPDECK_LISTEN=":${port}" \
+    FRPDECK_DATA_DIR="${DATA_DIR}" \
+    FRPDECK_FRPCD_DRIVER="embedded" \
+    FRPDECK_AUTH_MODE="${FRPDECK_AUTH_MODE:-password}" \
+    nohup "${bin}" >> "${LOG_FILE}" 2>&1 &
+    local pid=$!
+    printf "%s" "${pid}" > "${PID_FILE}"
+    log_msg "Started PID ${pid}"
+
+    # Give the daemon a brief grace period to crash on bad config so the
+    # error reaches TEMP_LOGFILE before this script returns success.
+    sleep 1
+    if ! check_process "${pid}"; then
+        fail_msg "FrpDeck exited immediately; see ${LOG_FILE}"
+        rm -f "${PID_FILE}"
+        return 1
+    fi
+    return 0
+}
+
+stop_process() {
+    if [ ! -f "${PID_FILE}" ]; then
+        log_msg "No PID file; nothing to stop"
+        return 0
+    fi
+
+    local pid
+    pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+    if ! check_process "${pid}"; then
+        rm -f "${PID_FILE}"
+        return 0
+    fi
+
+    log_msg "Sending TERM to PID ${pid}"
+    kill -TERM "${pid}" 2>/dev/null
+
+    local count=0
+    while check_process "${pid}" && [ ${count} -lt 10 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if check_process "${pid}"; then
+        log_msg "TERM ignored after 10s, sending KILL to PID ${pid}"
+        kill -KILL "${pid}" 2>/dev/null
+        sleep 1
+    fi
+
+    rm -f "${PID_FILE}"
+    log_msg "Stopped"
+    return 0
+}
+
+case "${1:-}" in
+    start)
+        start_process
+        ;;
+    stop)
+        stop_process
+        ;;
+    status)
+        if status; then exit 0; else exit 3; fi
+        ;;
+    *)
+        echo "usage: $0 {start|stop|status}" >&2
+        exit 1
+        ;;
+esac

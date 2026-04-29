@@ -49,6 +49,7 @@ FrpDeck 是一个面向个人服务器、NAS、家庭实验室和小团队内网
 | 独立 CLI | 可用 | `frpdeck` 二进制，支持自救、CRUD、日志、watch、remote mutating RPC |
 | Docker / NAS 部署 | 可用 | GHCR / Docker Hub 镜像，多架构 |
 | Linux systemd / Windows Service | 可用 | `frpdeck-server install/start/stop/status` |
+| 飞牛 fnOS 应用包 | 可用 | x86 + ARM `.fpk`，应用中心一键安装 |
 | Android | 开发中 | WebView 复用 Web UI，VPN 能力按业务驱动 |
 | 桌面 GUI | 开发中 | Wails 形态已接入，真机 polish 继续推进 |
 
@@ -93,6 +94,19 @@ services:
 volumes:
   frpdeck-data:
 ```
+
+### 飞牛 fnOS（fpk 应用包）
+
+> 适用 fnOS >= 0.9.0，支持 x86_64 与 ARM 双架构
+
+1. 从 [GitHub Releases](https://github.com/teacat99/FrpDeck/releases) 下载对应架构的 `.fpk`：
+   - `com.teacat.frpdeck-<version>-x86.fpk`（飞牛 x86 NAS）
+   - `com.teacat.frpdeck-<version>-arm.fpk`（飞牛 ARM NAS）
+2. 飞牛桌面 → 应用中心 → 右上角「自定义安装」 → 上传 `.fpk`
+3. 安装完成后桌面出现 FrpDeck 图标，点击直接打开 Web UI（默认端口 18080）
+4. 用户配置目录在共享空间 `FrpDeck/`：`config.json` 改端口、`data/frpdeck.db` 是隧道数据库（可直接备份）
+
+源码与打包脚本在 [`nas/fnos/`](./nas/fnos/)，发布说明见 [飞牛应用包 README](./nas/fnos/README.md)。
 
 ### Linux systemd
 

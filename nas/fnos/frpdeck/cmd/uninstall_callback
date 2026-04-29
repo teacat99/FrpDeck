@@ -1,0 +1,5 @@
+#!/bin/bash
+# fnOS auto-removes target/, etc/, tmp/, home/. var/ and shares/ are
+# preserved by default to protect user data (frpdeck.db + audit log).
+# Wizard support for full purge is a future polish.
+exit 0

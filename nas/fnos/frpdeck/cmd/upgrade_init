@@ -1,0 +1,14 @@
+#!/bin/bash
+# Pre-upgrade: snapshot SQLite so a botched migration is recoverable.
+set -u
+
+CONFIG_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
+DB_FILE="${CONFIG_DIR}/data/frpdeck.db"
+BACKUP_DIR="${TRIM_PKGVAR}/upgrade-backup"
+
+if [ -f "${DB_FILE}" ]; then
+    mkdir -p "${BACKUP_DIR}" 2>/dev/null || true
+    cp -f "${DB_FILE}" "${BACKUP_DIR}/frpdeck.db.${TRIM_OLD_APPVER:-prev}" 2>/dev/null || true
+fi
+
+exit 0

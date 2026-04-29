@@ -1,0 +1,4 @@
+#!/bin/bash
+# Post-upgrade: nothing required — frpdeck-server runs GORM AutoMigrate
+# on every boot, so schema changes are picked up automatically.
+exit 0

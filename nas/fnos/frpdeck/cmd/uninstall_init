@@ -1,0 +1,5 @@
+#!/bin/bash
+# fnOS already calls cmd/main stop before uninstall, but we double-tap
+# in case PID file was left over from a previous crash.
+"${TRIM_APPDEST}/../cmd/main" stop 2>/dev/null || true
+exit 0

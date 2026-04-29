@@ -1,0 +1,15 @@
+appname               = com.teacat.frpdeck
+version               = 0.7.0
+display_name          = FrpDeck
+desc                  = """<p><strong>FrpDeck — 多 frps 实例 frpc 管理控制台。</strong></p><p>把 frpc 隧道、临时端口、配置助手、远程代管、CLI 全部聚合到一个 Web UI；同时驱动多个 frps 服务端，覆盖个人 NAS 出口、家庭/中小企业组网、临时调试场景。</p><p><strong>核心能力：</strong></p><ul><li>多 frps Endpoint 并存：同一台飞牛上同时管理多家服务商或自建的 frps</li><li>临时隧道：到期自动回收，避免端口长期外露</li><li>frpc 配置助手 + 10 个场景模板：跑通 SSH / NAS / 影视库 / Web 等典型用例</li><li>远程代管：一键把另一台机器的 frpc 接管进 FrpDeck</li><li>frpdeck CLI：SSH 进 NAS 也能脚本化运维</li></ul><p><strong>使用方法：</strong>安装后从应用中心点开 FrpDeck，按引导创建管理员账号 → 添加 frps Endpoint → 创建隧道。详细文档：<a href=\"https://github.com/teacat99/FrpDeck\">github.com/teacat99/FrpDeck</a></p>"""
+platform              = x86
+source                = thirdparty
+maintainer            = teacat99
+maintainer_url        = https://github.com/teacat99/FrpDeck
+distributor           = teacat99
+distributor_url       = https://github.com/teacat99/FrpDeck
+os_min_version        = 0.9.0
+service_port          = 18080
+checkport             = true
+desktop_uidir         = ui
+desktop_applaunchname = com.teacat.frpdeck.Application

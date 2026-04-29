@@ -1,0 +1,11 @@
+{
+    ".url": {
+        "com.teacat.frpdeck.Application": {
+            "title": "FrpDeck",
+            "icon": "images/icon_{0}.png",
+            "type": "url",
+            "protocol": "http",
+            "port": "18080"
+        }
+    }
+}

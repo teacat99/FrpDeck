@@ -5,6 +5,8 @@
 /bin/
 /dist/
 /build/
+nas/fnos/dist/
+*.fpk
 
 # Wails 产物
 /build/bin/
