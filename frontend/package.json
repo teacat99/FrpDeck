@@ -17,7 +17,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
     "jsqr": "^1.4.0",
-    "lucide-vue-next": "^0.461.0",
+    "lucide-vue-next": "^1.0.0",
     "pinia": "^2.2.4",
     "qrcode": "^1.5.4",
     "radix-vue": "^1.9.11",
