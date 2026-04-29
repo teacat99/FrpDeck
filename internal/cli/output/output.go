@@ -97,6 +97,26 @@ func RenderSingle(out io.Writer, format Format, columns []Column, row map[string
 	}
 }
 
+// RenderRaw emits an arbitrary value (typically a typed struct) in
+// JSON or YAML form. Table format is rejected — callers must
+// project into a row map and use Render / RenderSingle for tabular
+// output. Useful when the daemon returns a strongly-typed RPC
+// payload (e.g. remoteops.InvitationResult) and the CLI wants to
+// pass it through to JSON/YAML consumers without fudging its
+// shape.
+func RenderRaw(out io.Writer, format Format, v any) error {
+	switch format {
+	case FormatJSON:
+		return renderJSON(out, v)
+	case FormatYAML:
+		return renderYAML(out, v)
+	case FormatTable:
+		return fmt.Errorf("RenderRaw does not support table format; project into rows first")
+	default:
+		return fmt.Errorf("unknown format %q", format)
+	}
+}
+
 // Option configures a Render call. Currently the only knob is
 // "skip the header row" so pipelines like
 //

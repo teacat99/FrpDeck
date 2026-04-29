@@ -1,13 +1,10 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +14,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/config"
 	"github.com/teacat99/FrpDeck/internal/model"
 	"github.com/teacat99/FrpDeck/internal/remotemgmt"
+	"github.com/teacat99/FrpDeck/internal/remoteops"
 )
 
 // AuthModeRequiredCode is the stable error code returned when a remote
@@ -83,15 +81,10 @@ func (s *Server) handleListRemoteNodes(c *gin.Context) {
 }
 
 // handleCreateInvitation generates an invitation that lets a peer
-// FrpDeck dial back into ours. Side-effects:
-//
-//   - creates a fresh stcp server-role tunnel pointed at our own
-//     web UI port (parsed from cfg.Listen),
-//   - persists a RemoteNode row in `manages_me` direction with status
-//     `pending` so the redemption path can find and validate it,
-//   - pushes the new tunnel to the driver if its endpoint is enabled
-//     (best-effort, falls back to a driver_warning so the operator can
-//     still copy the invitation and start the endpoint manually).
+// FrpDeck dial back into ours. The full side-effect list (auto stcp
+// tunnel, RemoteNode row, mgmt_token, driver push) lives in
+// internal/remoteops/remoteops.go (Service.CreateInvitation); this
+// handler only handles request parsing, auth, and JSON rendering.
 func (s *Server) handleCreateInvitation(c *gin.Context) {
 	if !s.remoteAuthGuard(c) {
 		return
@@ -104,186 +97,38 @@ func (s *Server) handleCreateInvitation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.EndpointID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint_id required"})
-		return
-	}
-	ep, err := s.store.GetEndpoint(req.EndpointID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if ep == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint not found"})
-		return
-	}
-	uiPort, err := localUIPort(s.cfg.Listen)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("cannot determine local UI port: %v", err)})
-		return
-	}
-	uiScheme := strings.ToLower(strings.TrimSpace(req.UIScheme))
-	if uiScheme == "" {
-		uiScheme = "http"
-	}
-	if uiScheme != "http" && uiScheme != "https" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ui_scheme must be http or https"})
-		return
-	}
 	uid, actor, _ := auth.Principal(c)
-	user, err := s.store.GetUserByID(uid)
-	if err != nil || user == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "actor not found"})
-		return
-	}
-
-	sk, err := randomHex(16)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	jti, err := randomHex(16)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	nodeName := strings.TrimSpace(req.NodeName)
-	if nodeName == "" {
-		nodeName = fallbackNodeName(s.cfg)
-	}
-
-	now := time.Now()
-	node := &model.RemoteNode{
-		Name:         nodeName,
-		Direction:    model.RemoteDirectionManagesMe,
-		EndpointID:   ep.ID,
-		RemoteUser:   ep.User,
-		SK:           sk,
-		MgmtTokenJTI: jti,
-		Status:       model.RemoteNodeStatusPending,
-	}
-	expireAt := now.Add(remotemgmt.InvitationTTL)
-	node.InviteExpiry = &expireAt
-	if err := s.store.CreateRemoteNode(node); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	mgmtToken, err := s.auth.IssueMgmtToken(user, node.ID, remotemgmt.MgmtTokenTTL, jti)
-	if err != nil {
-		_ = s.store.DeleteRemoteNode(node.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	node.AuthToken = mgmtToken
-	if err := s.store.UpdateRemoteNode(node); err != nil {
-		_ = s.store.DeleteRemoteNode(node.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	proxyName := fmt.Sprintf("frpdeck-mgmt-%d", node.ID)
-	tunnel := &model.Tunnel{
-		EndpointID:  ep.ID,
-		Name:        proxyName,
-		Type:        "stcp",
-		Role:        "server",
-		LocalIP:     "127.0.0.1",
-		LocalPort:   uiPort,
-		SK:          sk,
-		AllowUsers:  "*",
-		Encryption:  true,
-		Compression: true,
-		Status:      model.StatusPending,
-		Source:      model.TunnelSourceRemoteMgmt,
-		Enabled:     true,
-		AutoStart:   true,
-		CreatedBy:   uid,
-	}
-	if err := s.store.CreateTunnel(tunnel); err != nil {
-		_ = s.store.DeleteRemoteNode(node.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create tunnel: %v", err)})
-		return
-	}
-	node.TunnelID = tunnel.ID
-	if err := s.store.UpdateRemoteNode(node); err != nil {
-		_ = s.store.DeleteTunnel(tunnel.ID)
-		_ = s.store.DeleteRemoteNode(node.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	driverWarning := ""
-	if ep.Enabled {
-		if err := s.pushTunnelToDriver(tunnel); err != nil {
-			driverWarning = err.Error()
-		} else {
-			tunnel.Status = model.StatusActive
-			startAt := time.Now()
-			tunnel.LastStartAt = &startAt
-			_ = s.store.UpdateTunnel(tunnel)
-		}
-	}
-
-	inv := &remotemgmt.Invitation{
-		V:               remotemgmt.InvitationVersion,
-		NodeName:        nodeName,
-		Addr:            ep.Addr,
-		Port:            ep.Port,
-		Protocol:        ep.Protocol,
-		TLSEnable:       ep.TLSEnable,
-		FrpsUser:        ep.User,
-		FrpsToken:       ep.Token,
-		RemoteUser:      ep.User,
-		Sk:              sk,
-		UIScheme:        uiScheme,
-		ServerProxyName: proxyName,
-		MgmtToken:       mgmtToken,
-		IssuedAt:        now,
-		ExpireAt:        expireAt,
-	}
-	encoded, err := remotemgmt.Encode(inv)
-	if err != nil {
-		_ = s.store.DeleteTunnel(tunnel.ID)
-		_ = s.store.DeleteRemoteNode(node.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_ = s.store.WriteAudit(&model.AuditLog{
-		Action: "create_remote_invitation", Actor: actor, ActorIP: s.clientIP(c),
-		Detail: fmt.Sprintf("node=%d name=%s", node.ID, nodeName),
+	res, err := s.remoteSvc.CreateInvitation(c.Request.Context(), remoteops.CreateInviteArgs{
+		EndpointID: req.EndpointID,
+		NodeName:   req.NodeName,
+		UIScheme:   req.UIScheme,
+		Actor: remoteops.Actor{
+			UserID:   uid,
+			Username: actor,
+			IP:       s.clientIP(c),
+		},
 	})
-
-	resp := gin.H{
-		"node":          node,
-		"invitation":    encoded,
-		"expire_at":     expireAt,
-		"mgmt_token":    mgmtToken, // returned ONCE so the operator can debug; not stored client-side
-		"tunnel_id":     tunnel.ID,
+	if err != nil {
+		writeRemoteOpsError(c, err)
+		return
 	}
-	if driverWarning != "" {
-		resp["driver_warning"] = driverWarning
+	resp := gin.H{
+		"node":       res.Node,
+		"invitation": res.Invitation,
+		"expire_at":  res.ExpireAt,
+		"mgmt_token": res.MgmtToken,
+		"tunnel_id":  res.TunnelID,
+	}
+	if res.DriverWarning != "" {
+		resp["driver_warning"] = res.DriverWarning
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
 // handleRefreshInvitation regenerates the invitation for an existing
 // `manages_me` RemoteNode without tearing down the underlying tunnel
-// pairing. Used when the original invitation expired before the peer
-// redeemed it, or when the operator wants to share a fresh QR after
-// rotating the SK / mgmt_token. Behaviour:
-//
-//   - rotates SK + mgmt_token JTI on A's row,
-//   - reissues the JWT (5 min default TTL),
-//   - updates the auto-created stcp tunnel's SK in DB and replays it
-//     into the driver so the visitor only needs the new invitation,
-//   - flips status back to `pending` so the reaper does not race the
-//     redeem call,
-//   - keeps node id stable so the UI list does not reorder.
-//
-// Refusing on `revoked` rows: a revoked pairing has its tunnel deleted,
-// reviving it would require a full create — point operators at the
-// "generate invitation" form instead.
+// pairing. Full preconditions + side-effects in
+// internal/remoteops/remoteops.go (Service.RefreshInvitation).
 func (s *Server) handleRefreshInvitation(c *gin.Context) {
 	if !s.remoteAuthGuard(c) {
 		return
@@ -296,151 +141,29 @@ func (s *Server) handleRefreshInvitation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	node, err := s.store.GetRemoteNode(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "remote node not found"})
-		return
-	}
-	if node.Direction != model.RemoteDirectionManagesMe {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only manages_me nodes can refresh invitations"})
-		return
-	}
-	if node.Status == model.RemoteNodeStatusRevoked {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "revoked pairing cannot be refreshed; create a new invitation"})
-		return
-	}
-	if node.TunnelID == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "remote node has no backing tunnel"})
-		return
-	}
-	tunnel, err := s.store.GetTunnel(node.TunnelID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if tunnel == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "backing tunnel disappeared"})
-		return
-	}
-	ep, err := s.store.GetEndpoint(node.EndpointID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if ep == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "endpoint disappeared"})
-		return
-	}
 	uid, actor, _ := auth.Principal(c)
-	user, err := s.store.GetUserByID(uid)
-	if err != nil || user == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "actor not found"})
-		return
-	}
-	uiPort, err := localUIPort(s.cfg.Listen)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("cannot determine local UI port: %v", err)})
-		return
-	}
-	uiScheme := strings.ToLower(strings.TrimSpace(c.Query("ui_scheme")))
-	if uiScheme == "" {
-		uiScheme = "http"
-	}
-	if uiScheme != "http" && uiScheme != "https" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ui_scheme must be http or https"})
-		return
-	}
-
-	sk, err := randomHex(16)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	jti, err := randomHex(16)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	now := time.Now()
-	expireAt := now.Add(remotemgmt.InvitationTTL)
-
-	mgmtToken, err := s.auth.IssueMgmtToken(user, node.ID, remotemgmt.MgmtTokenTTL, jti)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	tunnel.SK = sk
-	tunnel.LocalPort = uiPort
-	if err := s.store.UpdateTunnel(tunnel); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	driverWarning := ""
-	if ep.Enabled {
-		_ = s.removeTunnelFromDriver(tunnel)
-		if err := s.pushTunnelToDriver(tunnel); err != nil {
-			driverWarning = err.Error()
-			tunnel.Status = model.StatusFailed
-		} else {
-			tunnel.Status = model.StatusActive
-			tunnel.LastStartAt = &now
-		}
-		_ = s.store.UpdateTunnel(tunnel)
-	}
-
-	node.SK = sk
-	node.MgmtTokenJTI = jti
-	node.AuthToken = mgmtToken
-	node.InviteExpiry = &expireAt
-	node.Status = model.RemoteNodeStatusPending
-	node.LastSeen = nil
-	if err := s.store.UpdateRemoteNode(node); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	inv := &remotemgmt.Invitation{
-		V:               remotemgmt.InvitationVersion,
-		NodeName:        node.Name,
-		Addr:            ep.Addr,
-		Port:            ep.Port,
-		Protocol:        ep.Protocol,
-		TLSEnable:       ep.TLSEnable,
-		FrpsUser:        ep.User,
-		FrpsToken:       ep.Token,
-		RemoteUser:      ep.User,
-		Sk:              sk,
-		UIScheme:        uiScheme,
-		ServerProxyName: tunnel.Name,
-		MgmtToken:       mgmtToken,
-		IssuedAt:        now,
-		ExpireAt:        expireAt,
-	}
-	encoded, err := remotemgmt.Encode(inv)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_ = s.store.WriteAudit(&model.AuditLog{
-		Action: "refresh_remote_invitation", Actor: actor, ActorIP: s.clientIP(c),
-		Detail: fmt.Sprintf("node=%d name=%s", node.ID, node.Name),
+	res, err := s.remoteSvc.RefreshInvitation(c.Request.Context(), remoteops.RefreshInviteArgs{
+		NodeID:   id,
+		UIScheme: c.Query("ui_scheme"),
+		Actor: remoteops.Actor{
+			UserID:   uid,
+			Username: actor,
+			IP:       s.clientIP(c),
+		},
 	})
-	resp := gin.H{
-		"node":       node,
-		"invitation": encoded,
-		"expire_at":  expireAt,
-		"mgmt_token": mgmtToken,
-		"tunnel_id":  tunnel.ID,
+	if err != nil {
+		writeRemoteOpsError(c, err)
+		return
 	}
-	if driverWarning != "" {
-		resp["driver_warning"] = driverWarning
+	resp := gin.H{
+		"node":       res.Node,
+		"invitation": res.Invitation,
+		"expire_at":  res.ExpireAt,
+		"mgmt_token": res.MgmtToken,
+		"tunnel_id":  res.TunnelID,
+	}
+	if res.DriverWarning != "" {
+		resp["driver_warning"] = res.DriverWarning
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -579,23 +302,9 @@ func (s *Server) handleRedeemInvitation(c *gin.Context) {
 }
 
 // handleRevokeMgmtToken voids the currently-issued mgmt_token without
-// tearing down the underlying stcp pairing. The use case is "I shared
-// the QR with the wrong contact and want them locked out before the
-// 24h TTL expires": we clear the on-record JTI so the next
-// /api/auth/remote-redeem call from anyone holding the stale token is
-// rejected by the JTI mismatch check (see handleRemoteRedeemToken
-// L661–664).
-//
-// The pairing remains usable — generating a new invitation via
-// `POST /remote/nodes/:id/refresh` will mint a fresh JTI + mgmt_token
-// without touching the existing tunnel SK; the visitor on B side keeps
-// working without redeem.
-//
-// Why we don't also rotate the SK: B side has no mgmt_token to redeem
-// once we clear the JTI, so the leak path (someone holding the old
-// mgmt_token) is closed regardless of SK rotation. Rotating SK would
-// require B to repair the visitor end, which is a far heavier
-// operation than what "revoke this leaked token" should cost.
+// tearing down the underlying stcp pairing. Full rationale + the
+// "why we don't rotate SK" decision in
+// internal/remoteops/remoteops.go (Service.RevokeMgmtToken).
 func (s *Server) handleRevokeMgmtToken(c *gin.Context) {
 	if !s.remoteAuthGuard(c) {
 		return
@@ -608,55 +317,25 @@ func (s *Server) handleRevokeMgmtToken(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	node, err := s.store.GetRemoteNode(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "remote node not found"})
-		return
-	}
-	if node.Direction != model.RemoteDirectionManagesMe {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only manages_me nodes have a mgmt_token to revoke"})
-		return
-	}
-	if node.Status == model.RemoteNodeStatusRevoked {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "pairing already revoked"})
-		return
-	}
-	if node.MgmtTokenJTI == "" {
-		// Already in "no mgmt_token outstanding" state; treat as
-		// idempotent success so a UI double-click is harmless.
-		c.JSON(http.StatusOK, node)
-		return
-	}
-
-	previousJTI := node.MgmtTokenJTI
-	node.MgmtTokenJTI = ""
-	node.AuthToken = ""
-	// Drop expiry so the reaper does not flip this row to expired
-	// before the operator generates a fresh invitation. The next
-	// refresh call resets InviteExpiry anyway.
-	node.InviteExpiry = nil
-	if err := s.store.UpdateRemoteNode(node); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	_, actor, _ := auth.Principal(c)
-	_ = s.store.WriteAudit(&model.AuditLog{
-		Action:  "revoke_mgmt_token",
-		Actor:   actor,
-		ActorIP: s.clientIP(c),
-		Detail:  fmt.Sprintf("node=%d direction=%s prev_jti=%s", node.ID, node.Direction, previousJTI),
+	uid, actor, _ := auth.Principal(c)
+	node, err := s.remoteSvc.RevokeMgmtToken(c.Request.Context(), remoteops.NodeArgs{
+		NodeID: id,
+		Actor: remoteops.Actor{
+			UserID:   uid,
+			Username: actor,
+			IP:       s.clientIP(c),
+		},
 	})
+	if err != nil {
+		writeRemoteOpsError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, node)
 }
 
-// handleRevokeRemoteNode tears down a pairing. Both sides perform the
-// same operation: stop + delete the auto-created tunnel, mark the
-// RemoteNode as revoked (kept for audit), and audit-log the action.
+// handleRevokeRemoteNode tears down a pairing. Implementation lives in
+// internal/remoteops/remoteops.go (Service.RevokeRemoteNode); the two
+// directions (manages_me / managed_by_me) share a single code path.
 func (s *Server) handleRevokeRemoteNode(c *gin.Context) {
 	if !s.remoteAuthGuard(c) {
 		return
@@ -669,32 +348,44 @@ func (s *Server) handleRevokeRemoteNode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	node, err := s.store.GetRemoteNode(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if node == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "remote node not found"})
-		return
-	}
-	if node.TunnelID > 0 {
-		if t, err := s.store.GetTunnel(node.TunnelID); err == nil && t != nil {
-			_ = s.removeTunnelFromDriver(t)
-			_ = s.store.DeleteTunnel(t.ID)
-		}
-	}
-	node.Status = model.RemoteNodeStatusRevoked
-	if err := s.store.UpdateRemoteNode(node); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	_, actor, _ := auth.Principal(c)
-	_ = s.store.WriteAudit(&model.AuditLog{
-		Action: "revoke_remote_node", Actor: actor, ActorIP: s.clientIP(c),
-		Detail: fmt.Sprintf("node=%d direction=%s", node.ID, node.Direction),
+	uid, actor, _ := auth.Principal(c)
+	node, err := s.remoteSvc.RevokeRemoteNode(c.Request.Context(), remoteops.NodeArgs{
+		NodeID: id,
+		Actor: remoteops.Actor{
+			UserID:   uid,
+			Username: actor,
+			IP:       s.clientIP(c),
+		},
 	})
+	if err != nil {
+		writeRemoteOpsError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, node)
+}
+
+// writeRemoteOpsError maps a Service-side error to an HTTP status
+// code. The service's well-known sentinels (validation, not-found,
+// state mismatches) map to 400/404; everything else falls through
+// to 500. We match on substrings rather than typed errors because
+// the service's surface is small enough that error strings are
+// stable + the alternative (an enumerated error type per case)
+// would push concerns into the service that only matter to HTTP.
+func writeRemoteOpsError(c *gin.Context, err error) {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "endpoint_id required"),
+		strings.Contains(msg, "ui_scheme must be"),
+		strings.Contains(msg, "only manages_me nodes"),
+		strings.Contains(msg, "revoked pairing cannot be refreshed"),
+		strings.Contains(msg, "pairing already revoked"),
+		strings.Contains(msg, "endpoint not found"):
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+	case strings.Contains(msg, "remote node not found"):
+		c.JSON(http.StatusNotFound, gin.H{"error": msg})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+	}
 }
 
 // handleRemoteRedeemToken is mounted on the public group: this path is
@@ -765,46 +456,6 @@ func (s *Server) handleRemoteRedeemToken(c *gin.Context) {
 	})
 }
 
-// localUIPort extracts the TCP port FrpDeck listens on from a gin-style
-// host[:port] string. Used in invitation generation so the auto-created
-// stcp tunnel forwards to the right local port.
-func localUIPort(listen string) (int, error) {
-	if listen == "" {
-		return 0, errors.New("listen address empty")
-	}
-	host, portStr, err := net.SplitHostPort(listen)
-	_ = host
-	if err != nil {
-		// Fallback: leading colon shorthand like ":8080"
-		if strings.HasPrefix(listen, ":") {
-			portStr = strings.TrimPrefix(listen, ":")
-		} else {
-			return 0, fmt.Errorf("listen address %q: %w", listen, err)
-		}
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil || port <= 0 || port > 65535 {
-		return 0, fmt.Errorf("invalid port in listen address %q", listen)
-	}
-	return port, nil
-}
-
-// fallbackNodeName picks a sensible default invitation node name when
-// the operator did not provide one. Uses FRPDECK_INSTANCE_NAME when set
-// (the env var declared in plan.md §9), else "frpdeck-<host port>".
-func fallbackNodeName(cfg *config.Config) string {
-	if cfg == nil {
-		return "frpdeck-node"
-	}
-	if name := strings.TrimSpace(cfg.InstanceName); name != "" {
-		return name
-	}
-	if port, err := localUIPort(cfg.Listen); err == nil {
-		return fmt.Sprintf("frpdeck-%d", port)
-	}
-	return "frpdeck-node"
-}
-
 // allocateLocalBindPort finds an unused TCP port in the
 // 9201-9499 ephemeral range we reserve for visitor bindings. Used by
 // the redeem path so several remote nodes can coexist without collision.
@@ -869,14 +520,6 @@ func (s *Server) findOrCreateEndpointFromInvite(inv *remotemgmt.Invitation) (*mo
 		return nil, err
 	}
 	return ep, nil
-}
-
-func randomHex(n int) (string, error) {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
 }
 
 func pointerTime(t time.Time) *time.Time {

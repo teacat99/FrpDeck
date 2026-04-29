@@ -6,6 +6,7 @@ import (
 
 	"github.com/teacat99/FrpDeck/internal/config"
 	"github.com/teacat99/FrpDeck/internal/model"
+	"github.com/teacat99/FrpDeck/internal/remoteops"
 )
 
 // stubRemoteStore implements only the surface allocateLocalBindPort
@@ -34,35 +35,35 @@ func TestLocalUIPort(t *testing.T) {
 		{"127.0.0.1:99999", 0, false},
 	}
 	for _, tc := range cases {
-		got, err := localUIPort(tc.listen)
+		got, err := remoteops.LocalUIPort(tc.listen)
 		if tc.ok && err != nil {
-			t.Errorf("localUIPort(%q) unexpected err: %v", tc.listen, err)
+			t.Errorf("LocalUIPort(%q) unexpected err: %v", tc.listen, err)
 			continue
 		}
 		if !tc.ok && err == nil {
-			t.Errorf("localUIPort(%q) expected err, got nil", tc.listen)
+			t.Errorf("LocalUIPort(%q) expected err, got nil", tc.listen)
 			continue
 		}
 		if tc.ok && got != tc.want {
-			t.Errorf("localUIPort(%q) = %d, want %d", tc.listen, got, tc.want)
+			t.Errorf("LocalUIPort(%q) = %d, want %d", tc.listen, got, tc.want)
 		}
 	}
 }
 
 func TestFallbackNodeName(t *testing.T) {
-	if got := fallbackNodeName(nil); got != "frpdeck-node" {
+	if got := remoteops.FallbackNodeName(nil); got != "frpdeck-node" {
 		t.Errorf("nil cfg: got %q", got)
 	}
 	cfg := &config.Config{InstanceName: "  hq-node  ", Listen: ":18080"}
-	if got := fallbackNodeName(cfg); got != "hq-node" {
+	if got := remoteops.FallbackNodeName(cfg); got != "hq-node" {
 		t.Errorf("instance name not honoured: got %q", got)
 	}
 	cfg = &config.Config{Listen: ":18080"}
-	if got := fallbackNodeName(cfg); got != "frpdeck-18080" {
+	if got := remoteops.FallbackNodeName(cfg); got != "frpdeck-18080" {
 		t.Errorf("port-based fallback wrong: got %q", got)
 	}
 	cfg = &config.Config{Listen: "weird"}
-	if got := fallbackNodeName(cfg); got != "frpdeck-node" {
+	if got := remoteops.FallbackNodeName(cfg); got != "frpdeck-node" {
 		t.Errorf("invalid listen fallback: got %q", got)
 	}
 }

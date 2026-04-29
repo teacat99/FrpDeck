@@ -70,6 +70,16 @@ type Handlers struct {
 	// forward-compatible with daemon builds that do not link the
 	// driver event bus.
 	Subscribe func(ctx context.Context) (<-chan json.RawMessage, func())
+
+	// Invoke dispatches a typed business RPC. method names a row in
+	// the daemon-side dispatch table (e.g. "remote.invite"); body
+	// is the JSON-encoded args for that method. The returned bytes
+	// are placed verbatim into Response.Result for the CLI to
+	// decode into its method-specific result struct.
+	//
+	// nil handler returns "invoke: no handler" so an old daemon
+	// gracefully refuses RPCs from a newer CLI.
+	Invoke func(ctx context.Context, method string, body json.RawMessage) (json.RawMessage, error)
 }
 
 // Server accepts inbound control-channel connections and dispatches
@@ -225,7 +235,17 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// CmdInvoke routes typed business RPCs that may touch the
+	// driver (e.g. remote.invite pushes a fresh stcp tunnel into
+	// frpc) — give those a longer ceiling than the cheap RPCs.
+	timeout := 5 * time.Second
+	if req.Command == CmdInvoke {
+		timeout = 30 * time.Second
+	}
+	// Reset the read+write deadline so a slow Invoke handler is
+	// not killed by the per-conn 5s deadline set above.
+	_ = conn.SetDeadline(time.Now().Add(timeout + 5*time.Second))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	resp := s.dispatch(ctx, req)
 
@@ -349,9 +369,36 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 			return Response{Ok: false, Error: err.Error()}
 		}
 		return Response{Ok: true}
+	case CmdInvoke:
+		return s.handleInvoke(ctx, req)
 	default:
 		return Response{Ok: false, Error: "unknown command: " + string(req.Command)}
 	}
+}
+
+// handleInvoke is the generic business-RPC dispatcher. It pulls
+// method + body off the request, hands them to the registered Invoke
+// handler, and packages the result JSON into the response. Errors
+// from the handler are surfaced verbatim — handlers should already
+// have shaped their error strings for human consumption (the CLI
+// prints them as-is).
+func (s *Server) handleInvoke(ctx context.Context, req Request) Response {
+	if s.handlers.Invoke == nil {
+		return Response{Ok: false, Error: "invoke: no handler"}
+	}
+	method := strings.TrimSpace(req.Args["method"])
+	if method == "" {
+		return Response{Ok: false, Error: "invoke: method required"}
+	}
+	var body json.RawMessage
+	if raw := req.Args["body"]; raw != "" {
+		body = json.RawMessage(raw)
+	}
+	result, err := s.handlers.Invoke(ctx, method, body)
+	if err != nil {
+		return Response{Ok: false, Error: err.Error()}
+	}
+	return Response{Ok: true, Result: result}
 }
 
 func writeErr(conn net.Conn, msg string) {

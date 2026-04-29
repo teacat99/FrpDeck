@@ -72,6 +72,19 @@ const (
 	// Filtering happens daemon-side so noisy buses do not flood
 	// the socket; the client trusts the daemon's filter output.
 	CmdSubscribe Command = "subscribe"
+
+	// CmdInvoke is the generic business-RPC entry point. The daemon
+	// keeps a method dispatch table (see cmd/server/bootstrap.go,
+	// installRPCHandlers); each call carries a method name in
+	// Args["method"] and a JSON-encoded request body in Args["body"].
+	//
+	// We use one generic command rather than minting a new Command
+	// per business operation because the wire surface would otherwise
+	// grow unbounded as P10-D, P11+ add more daemon-side RPCs. The
+	// trade-off — losing per-method introspection at the protocol
+	// layer — is fine: the dispatch table is the source of truth and
+	// the CLI keeps its typed wrapper functions per method.
+	CmdInvoke Command = "invoke"
 )
 
 // Request is a single line on the wire from CLI -> daemon.
@@ -99,6 +112,12 @@ type Response struct {
 	Error string            `json:"error,omitempty"`
 	Data  map[string]string `json:"data,omitempty"`
 	Event json.RawMessage   `json:"event,omitempty"`
+	// Result carries the JSON-encoded payload of CmdInvoke calls.
+	// We keep this separate from Data so existing string-keyed
+	// commands (ping, reconcile) keep their wire shape and we can
+	// transmit arbitrary typed structs without forcing them through
+	// a flat string map.
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // Encode is a tiny helper so callers do not have to remember to

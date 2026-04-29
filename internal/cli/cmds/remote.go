@@ -1,6 +1,8 @@
 package cmds
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,35 +12,38 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teacat99/FrpDeck/internal/cli/output"
+	"github.com/teacat99/FrpDeck/internal/control"
 	"github.com/teacat99/FrpDeck/internal/model"
 	"github.com/teacat99/FrpDeck/internal/store"
 )
 
 // NewRemoteCmd builds the `frpdeck remote` command tree.
 //
-// Coverage in P10-C: read-only `nodes list` / `nodes get`. The
-// invite / refresh / revoke / revoke-token paths involve mgmt-token
-// JWT issuance, driver tunnel push, and audit-log writes — all of
-// which currently live inside the gin handler in
-// `internal/api/remote.go`. Refactoring those into a daemon-shared
-// helper is a P10-D scope item; until then, the CLI documents
-// `frpdeck remote …` as the read-only side and points the operator
-// to the Web UI for one-shot actions.
-//
-// Read-only is still useful: scripts that build a status board, or
-// ops who want to confirm a node is `active` without opening the
-// browser, get a clean answer with this command alone.
+// Coverage in P10-D: read-only `nodes list` / `nodes get` keep their
+// Direct-DB shortcut; the four mutating actions (invite / refresh /
+// revoke / revoke-token) round-trip through the control socket so
+// the daemon can mint mgmt_tokens, push the auto stcp tunnel, and
+// write the audit row. The CLI fails fast with ErrDaemonNotRunning
+// when the socket is unreachable — these operations cannot work
+// Direct-DB because the JWT signing key only exists in the running
+// daemon's memory.
 func NewRemoteCmd(opts *GlobalOptions) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "remote",
-		Short: "Inspect remote-managed FrpDeck pairings (read-only in P10-C)",
+		Short: "Manage remote-managed FrpDeck pairings",
 	}
 	nodes := &cobra.Command{
 		Use:   "nodes",
 		Short: "Operate on RemoteNode rows",
 	}
 	nodes.AddCommand(newRemoteNodesListCmd(opts), newRemoteNodesGetCmd(opts))
-	c.AddCommand(nodes, newRemoteInviteStubCmd("invite"), newRemoteInviteStubCmd("refresh"), newRemoteInviteStubCmd("revoke"), newRemoteInviteStubCmd("revoke-token"))
+	c.AddCommand(
+		nodes,
+		newRemoteInviteCmd(opts),
+		newRemoteRefreshCmd(opts),
+		newRemoteRevokeMgmtTokenCmd(opts),
+		newRemoteRevokeCmd(opts),
+	)
 	return c
 }
 
@@ -122,30 +127,279 @@ func newRemoteNodesGetCmd(opts *GlobalOptions) *cobra.Command {
 	}
 }
 
-// newRemoteInviteStubCmd surfaces the not-yet-CLI-implemented actions
-// as visible subcommands so `frpdeck remote --help` advertises them
-// — failing fast with a helpful pointer beats a silent omission that
-// has the operator wondering whether they're holding it wrong.
-func newRemoteInviteStubCmd(action string) *cobra.Command {
-	return &cobra.Command{
-		Use:   action,
-		Short: "(P10-D) Mutating remote-pairing action — currently CLI-out-of-scope; use the Web UI",
-		Long: "The mutating remote-pairing actions (invite / refresh / revoke /\n" +
-			"revoke-token) involve mgmt-token JWT issuance, stcp tunnel push to the\n" +
-			"running driver, and audit-log writes. The CLI's Direct-DB pattern\n" +
-			"cannot reach those subsystems without the daemon's auth + driver\n" +
-			"context.\n\n" +
-			"Refactoring the API handler internals to live behind the control\n" +
-			"socket is tracked as P10-D. Until then please use the Web UI's\n" +
-			"\"Remote Nodes\" page for these actions; the read-only `frpdeck\n" +
-			"remote nodes list / get` already covers status inspection.",
+// invocationResult mirrors remoteops.InvitationResult on the wire.
+// We re-declare it here rather than import internal/remoteops so the
+// CLI binary stays free of the daemon-only dependency tree (auth,
+// frpcd driver, etc.) — keeping the CLI's binary footprint small.
+type invocationResult struct {
+	Node          *model.RemoteNode `json:"node"`
+	Invitation    string            `json:"invitation"`
+	ExpireAt      time.Time         `json:"expire_at"`
+	MgmtToken     string            `json:"mgmt_token"`
+	TunnelID      uint              `json:"tunnel_id"`
+	DriverWarning string            `json:"driver_warning,omitempty"`
+}
+
+// invocationActor mirrors remoteops.Actor for wire serialization.
+// CLI calls leave UserID = 0 so the daemon falls back to the first
+// active admin (audit row will be attributed to that user with
+// "cli" as the actor name).
+type invocationActor struct {
+	UserID   uint   `json:"UserID,omitempty"`
+	Username string `json:"Username,omitempty"`
+	IP       string `json:"IP,omitempty"`
+}
+
+// invokeRemoteOps wraps the control-socket Invoke call with consistent
+// error handling — every mutating remote command takes the same path.
+func invokeRemoteOps(ctx context.Context, opts *GlobalOptions, method string, args any) (json.RawMessage, error) {
+	if opts.SocketClient == nil {
+		return nil, errExitCode{code: 1, msg: "control socket client not initialised"}
+	}
+	body, err := json.Marshal(args)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	res, err := opts.SocketClient.Invoke(ctx, method, body)
+	if err != nil {
+		if errors.Is(err, control.ErrDaemonNotRunning) {
+			return nil, errExitCode{code: 3, msg: "daemon is not running — start frpdeck-server before running mutating remote commands"}
+		}
+		return nil, err
+	}
+	return res, nil
+}
+
+func newRemoteInviteCmd(opts *GlobalOptions) *cobra.Command {
+	var endpointRef, nodeName, uiScheme string
+	c := &cobra.Command{
+		Use:   "invite",
+		Short: "Generate a remote-management invitation that lets a peer FrpDeck dial back",
+		Long: "Mints a fresh invitation: creates a stcp server-role tunnel pointed at\n" +
+			"this instance's web UI, persists a RemoteNode row, signs a 24h mgmt_token\n" +
+			"and pushes the tunnel to the running driver. Output includes the encoded\n" +
+			"invitation the peer pastes into `frpdeck-server`'s redeem flow.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return errExitCode{
-				code: 64, // EX_USAGE
-				msg:  fmt.Sprintf("`frpdeck remote %s` is not implemented in P10-C; use the Web UI's Remote Nodes page (tracked as P10-D)", action),
+			if strings.TrimSpace(endpointRef) == "" {
+				return UsageError{Msg: "--endpoint is required"}
 			}
+			st, closer, err := opts.OpenStore()
+			if err != nil {
+				return err
+			}
+			ep, err := resolveEndpoint(st, endpointRef)
+			closer()
+			if err != nil {
+				return err
+			}
+			args := struct {
+				EndpointID uint            `json:"EndpointID"`
+				NodeName   string          `json:"NodeName,omitempty"`
+				UIScheme   string          `json:"UIScheme,omitempty"`
+				Actor      invocationActor `json:"Actor"`
+			}{
+				EndpointID: ep.ID,
+				NodeName:   strings.TrimSpace(nodeName),
+				UIScheme:   strings.TrimSpace(uiScheme),
+				Actor:      invocationActor{Username: "cli"},
+			}
+			raw, err := invokeRemoteOps(cmd.Context(), opts, "remote.invite", args)
+			if err != nil {
+				return err
+			}
+			return renderInvitationResult(cmd, opts, raw)
 		},
 	}
+	c.Flags().StringVarP(&endpointRef, "endpoint", "e", "", "Endpoint hosting the auto stcp tunnel (id or name)")
+	c.Flags().StringVar(&nodeName, "name", "", "Node name surfaced to the peer (defaults to instance name)")
+	c.Flags().StringVar(&uiScheme, "ui-scheme", "http", "UI scheme advertised in the invitation (http or https)")
+	return c
+}
+
+func newRemoteRefreshCmd(opts *GlobalOptions) *cobra.Command {
+	var uiScheme string
+	c := &cobra.Command{
+		Use:   "refresh <id|name>",
+		Short: "Rotate the mgmt_token + SK on an existing manages_me pairing",
+		Long: "Used when the original invitation expired before the peer redeemed it,\n" +
+			"or when rotating credentials. Replays the new tunnel SK into the driver\n" +
+			"so the visitor only needs to import the freshly-emitted invitation.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, closer, err := opts.OpenStore()
+			if err != nil {
+				return err
+			}
+			node, err := resolveRemoteNode(st, args[0])
+			closer()
+			if err != nil {
+				return err
+			}
+			req := struct {
+				NodeID   uint            `json:"NodeID"`
+				UIScheme string          `json:"UIScheme,omitempty"`
+				Actor    invocationActor `json:"Actor"`
+			}{
+				NodeID:   node.ID,
+				UIScheme: strings.TrimSpace(uiScheme),
+				Actor:    invocationActor{Username: "cli"},
+			}
+			raw, err := invokeRemoteOps(cmd.Context(), opts, "remote.refresh", req)
+			if err != nil {
+				return err
+			}
+			return renderInvitationResult(cmd, opts, raw)
+		},
+	}
+	c.Flags().StringVar(&uiScheme, "ui-scheme", "http", "UI scheme advertised in the invitation (http or https)")
+	return c
+}
+
+func newRemoteRevokeMgmtTokenCmd(opts *GlobalOptions) *cobra.Command {
+	c := &cobra.Command{
+		Use:   "revoke-token <id|name>",
+		Short: "Void the outstanding mgmt_token without tearing down the pairing",
+		Long: "Idempotent: revoking a row whose JTI is already empty returns the row\n" +
+			"unchanged. The underlying stcp tunnel keeps working — call `frpdeck\n" +
+			"remote refresh` afterwards if you also want to mint a fresh invitation.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, closer, err := opts.OpenStore()
+			if err != nil {
+				return err
+			}
+			node, err := resolveRemoteNode(st, args[0])
+			closer()
+			if err != nil {
+				return err
+			}
+			req := struct {
+				NodeID uint            `json:"NodeID"`
+				Actor  invocationActor `json:"Actor"`
+			}{NodeID: node.ID, Actor: invocationActor{Username: "cli"}}
+			raw, err := invokeRemoteOps(cmd.Context(), opts, "remote.revoke-mgmt-token", req)
+			if err != nil {
+				return err
+			}
+			return renderRemoteNodeResult(cmd, opts, raw)
+		},
+	}
+	return c
+}
+
+func newRemoteRevokeCmd(opts *GlobalOptions) *cobra.Command {
+	c := &cobra.Command{
+		Use:   "revoke <id|name>",
+		Short: "Tear down a remote pairing (stop tunnel, mark node revoked)",
+		Long: "Performs the same operation in both directions: removes the auto stcp\n" +
+			"tunnel from the driver, deletes its row, marks the RemoteNode as\n" +
+			"revoked (kept in DB for audit). Not reversible — use `invite` to\n" +
+			"create a fresh pairing if needed.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, closer, err := opts.OpenStore()
+			if err != nil {
+				return err
+			}
+			node, err := resolveRemoteNode(st, args[0])
+			closer()
+			if err != nil {
+				return err
+			}
+			if !opts.Yes {
+				return UsageError{Msg: fmt.Sprintf("refusing to revoke remote node %d (%s); pass --yes to confirm", node.ID, node.Name)}
+			}
+			req := struct {
+				NodeID uint            `json:"NodeID"`
+				Actor  invocationActor `json:"Actor"`
+			}{NodeID: node.ID, Actor: invocationActor{Username: "cli"}}
+			raw, err := invokeRemoteOps(cmd.Context(), opts, "remote.revoke", req)
+			if err != nil {
+				return err
+			}
+			return renderRemoteNodeResult(cmd, opts, raw)
+		},
+	}
+	return c
+}
+
+// renderInvitationResult prints the InvitationResult according to the
+// requested output format. For table mode we emit a vertical
+// key/value pair view since the invitation string is too wide for a
+// horizontal table — the operator usually wants to copy it verbatim.
+func renderInvitationResult(cmd *cobra.Command, opts *GlobalOptions, raw json.RawMessage) error {
+	var res invocationResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return fmt.Errorf("decode invitation result: %w", err)
+	}
+	switch opts.Format {
+	case output.FormatJSON, output.FormatYAML:
+		return output.RenderRaw(cmd.OutOrStdout(), opts.Format, res)
+	}
+	row := map[string]any{
+		"node_id":     res.Node.ID,
+		"node_name":   res.Node.Name,
+		"endpoint_id": res.Node.EndpointID,
+		"tunnel_id":   res.TunnelID,
+		"status":      res.Node.Status,
+		"expire_at":   res.ExpireAt.Format(time.RFC3339),
+		"invitation":  res.Invitation,
+		"mgmt_token":  res.MgmtToken,
+	}
+	if res.DriverWarning != "" {
+		row["driver_warning"] = res.DriverWarning
+	}
+	cols := []output.Column{
+		{Title: "Node ID", Key: "node_id"},
+		{Title: "Name", Key: "node_name"},
+		{Title: "Endpoint ID", Key: "endpoint_id"},
+		{Title: "Tunnel ID", Key: "tunnel_id"},
+		{Title: "Status", Key: "status"},
+		{Title: "Expire At", Key: "expire_at"},
+		{Title: "Invitation", Key: "invitation"},
+		{Title: "Mgmt Token", Key: "mgmt_token"},
+	}
+	if res.DriverWarning != "" {
+		cols = append(cols, output.Column{Title: "Driver Warning", Key: "driver_warning"})
+	}
+	return output.RenderSingle(cmd.OutOrStdout(), opts.Format, cols, row)
+}
+
+// renderRemoteNodeResult prints the RemoteNode row returned by the
+// revoke / revoke-token RPCs. We reuse the read-only `nodes get`
+// projection so the operator sees a familiar shape after the action.
+func renderRemoteNodeResult(cmd *cobra.Command, opts *GlobalOptions, raw json.RawMessage) error {
+	var node model.RemoteNode
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return fmt.Errorf("decode remote node: %w", err)
+	}
+	switch opts.Format {
+	case output.FormatJSON, output.FormatYAML:
+		return output.RenderRaw(cmd.OutOrStdout(), opts.Format, node)
+	}
+	st, closer, err := opts.OpenStore()
+	if err != nil {
+		return err
+	}
+	defer closer()
+	endpointNames, err := buildEndpointNameMap(st)
+	if err != nil {
+		return err
+	}
+	row := remoteNodeRow(&node, endpointNames)
+	cols := []output.Column{
+		{Title: "ID", Key: "id"},
+		{Title: "Name", Key: "name"},
+		{Title: "Direction", Key: "direction"},
+		{Title: "Endpoint", Key: "endpoint"},
+		{Title: "Tunnel ID", Key: "tunnel_id"},
+		{Title: "Status", Key: "status"},
+		{Title: "Invite Expiry", Key: "invite_expiry"},
+		{Title: "Last Seen", Key: "last_seen"},
+	}
+	return output.RenderSingle(cmd.OutOrStdout(), opts.Format, cols, row)
 }
 
 // resolveRemoteNode looks up by ID first (numeric) then by

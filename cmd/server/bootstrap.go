@@ -37,6 +37,7 @@ import (
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
 	"github.com/teacat99/FrpDeck/internal/notify"
+	"github.com/teacat99/FrpDeck/internal/remoteops"
 	"github.com/teacat99/FrpDeck/internal/runtime"
 	"github.com/teacat99/FrpDeck/internal/store"
 	"github.com/teacat99/FrpDeck/web"
@@ -54,6 +55,10 @@ type Runtime struct {
 	Driver    frpcd.FrpDriver
 	Auth      *auth.Authenticator
 	Settings  *runtime.Settings
+	// RemoteOps owns the mutating P5 flows. Same instance is used by
+	// the HTTP handlers (api.Server.RemoteOps()) and the control
+	// socket invoke dispatcher, so both transports share state.
+	RemoteOps *remoteops.Service
 
 	// AdminID / AdminUsername identify the seed administrator. Wails
 	// uses these to mint an in-process JWT for tray-driven HTTP calls
@@ -124,6 +129,7 @@ func (r *Runtime) StartControl(version string) {
 			}
 			return adaptDriverSubscribe(ctx, r.Driver)
 		},
+		Invoke: r.dispatchInvoke,
 	})
 	if err := srv.Start(); err != nil {
 		log.Printf("[control] disabled: %v", err)
@@ -206,6 +212,7 @@ func bootstrap() (*Runtime, error) {
 		Driver:        drv,
 		Auth:          authn,
 		Settings:      rt,
+		RemoteOps:     apiSrv.RemoteOps(),
 		AdminID:       adminID,
 		AdminUsername: adminUsername,
 		rootCtx:       ctx,
@@ -230,6 +237,72 @@ func startHTTP(rt *Runtime) *http.Server {
 		}
 	}()
 	return httpSrv
+}
+
+// dispatchInvoke is the daemon-side method dispatch table for
+// CmdInvoke calls. New business RPCs land here as a single case
+// each; the table is the source of truth — protocol.go does not
+// need to know about per-method names.
+//
+// Method names use a "<resource>.<verb>" convention so the CLI's
+// flag-to-method mapping reads naturally
+// (`frpdeck remote invite` -> "remote.invite").
+func (r *Runtime) dispatchInvoke(ctx context.Context, method string, body json.RawMessage) (json.RawMessage, error) {
+	if r.RemoteOps == nil {
+		return nil, fmt.Errorf("remote ops service not initialised")
+	}
+	switch method {
+	case "remote.invite":
+		var args remoteops.CreateInviteArgs
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &args); err != nil {
+				return nil, fmt.Errorf("decode args: %w", err)
+			}
+		}
+		res, err := r.RemoteOps.CreateInvitation(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(res)
+	case "remote.refresh":
+		var args remoteops.RefreshInviteArgs
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &args); err != nil {
+				return nil, fmt.Errorf("decode args: %w", err)
+			}
+		}
+		res, err := r.RemoteOps.RefreshInvitation(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(res)
+	case "remote.revoke-mgmt-token":
+		var args remoteops.NodeArgs
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &args); err != nil {
+				return nil, fmt.Errorf("decode args: %w", err)
+			}
+		}
+		res, err := r.RemoteOps.RevokeMgmtToken(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(res)
+	case "remote.revoke":
+		var args remoteops.NodeArgs
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &args); err != nil {
+				return nil, fmt.Errorf("decode args: %w", err)
+			}
+		}
+		res, err := r.RemoteOps.RevokeRemoteNode(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(res)
+	default:
+		return nil, fmt.Errorf("unknown method %q", method)
+	}
 }
 
 // adaptDriverSubscribe bridges the driver's typed Event channel to

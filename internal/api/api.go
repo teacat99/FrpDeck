@@ -25,12 +25,13 @@ import (
 	"github.com/teacat99/FrpDeck/internal/frpcimport"
 	"github.com/teacat99/FrpDeck/internal/frpshelper"
 	"github.com/teacat99/FrpDeck/internal/lifecycle"
-	"github.com/teacat99/FrpDeck/internal/templates"
 	"github.com/teacat99/FrpDeck/internal/model"
 	"github.com/teacat99/FrpDeck/internal/netutil"
 	"github.com/teacat99/FrpDeck/internal/notify"
+	"github.com/teacat99/FrpDeck/internal/remoteops"
 	"github.com/teacat99/FrpDeck/internal/runtime"
 	"github.com/teacat99/FrpDeck/internal/store"
+	"github.com/teacat99/FrpDeck/internal/templates"
 )
 
 // Server wires the HTTP router with its dependencies. Constructing Server
@@ -45,6 +46,12 @@ type Server struct {
 	captcha   *captcha.Service
 	notify    *notify.Ntfy
 	limiter   *ipRateLimiter
+	// remoteSvc owns the mutating P5 flows. The HTTP handlers in
+	// `remote.go` are now thin: parse + auth + delegate. The same
+	// service is registered with the control socket dispatch table
+	// so `frpdeck remote invite` runs identical code without going
+	// through HTTP. See internal/remoteops/remoteops.go.
+	remoteSvc *remoteops.Service
 }
 
 // New builds a Server with all collaborators supplied. Callers must not
@@ -73,8 +80,15 @@ func New(
 		captcha:   cs,
 		notify:    nt,
 		limiter:   limiter,
+		remoteSvc: remoteops.New(cfg, s, a, drv),
 	}
 }
+
+// RemoteOps exposes the mutating P5 service so non-HTTP transports
+// (the control socket, future RPC backplanes) can drive the same
+// business logic without re-implementing it. Returned by reference;
+// the service is safe for concurrent use.
+func (s *Server) RemoteOps() *remoteops.Service { return s.remoteSvc }
 
 // Router mounts the /api/* tree on a gin.Engine. Authentication is
 // enforced by the auth middleware; /auth/* endpoints are mounted before
@@ -790,9 +804,9 @@ func (s *Server) handleImportTunnelsPreview(c *gin.Context) {
 // DefaultOnConflict applies when a draft does not specify its own
 // override; valid values are "error" (default), "skip", "rename".
 type importCommitReq struct {
-	EndpointID        uint                  `json:"endpoint_id"`
-	Tunnels           []importCommitTunnel  `json:"tunnels"`
-	DefaultOnConflict string                `json:"default_on_conflict,omitempty"`
+	EndpointID        uint                 `json:"endpoint_id"`
+	Tunnels           []importCommitTunnel `json:"tunnels"`
+	DefaultOnConflict string               `json:"default_on_conflict,omitempty"`
 }
 
 // importCommitTunnel wraps the draft with the per-row conflict resolution

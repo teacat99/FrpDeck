@@ -102,6 +102,33 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	return err
 }
 
+// Invoke calls a typed business RPC on the daemon. method names a
+// row in the daemon's dispatch table (declared in
+// cmd/server/bootstrap.go); body is the JSON-encoded args struct
+// for that method. The returned bytes are the daemon's
+// JSON-encoded result, which the caller decodes into the
+// per-method result struct.
+//
+// Failure modes:
+//   - daemon not running: ErrDaemonNotRunning (typed)
+//   - method unknown / dispatch error: error from the daemon side,
+//     surfaced verbatim so the CLI can print it to the operator
+//   - any transport error: wrapped with the original error message
+//
+// The ctx deadline applies to the full dial+write+read; pass at
+// least a few seconds for RPCs that may push to the driver.
+func (c *Client) Invoke(ctx context.Context, method string, body json.RawMessage) (json.RawMessage, error) {
+	args := map[string]string{"method": method}
+	if len(body) > 0 {
+		args["body"] = string(body)
+	}
+	resp, err := c.do(ctx, Request{Command: CmdInvoke, Args: args})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
 // SubscribeOptions narrows the event stream daemon-side. All fields
 // are optional; zero values mean "no filter on this dimension".
 type SubscribeOptions struct {
