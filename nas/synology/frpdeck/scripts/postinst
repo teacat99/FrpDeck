@@ -1,0 +1,16 @@
+#!/bin/sh
+# Post-install: seed config.json so the user can edit listen_port from
+# File Station (Package Center has no UI for this).
+CONFIG_JSON="${SYNOPKG_PKGVAR}/config.json"
+if [ ! -f "${CONFIG_JSON}" ]; then
+    cat > "${CONFIG_JSON}" <<EOF
+{
+  "listen_port": 18080
+}
+EOF
+fi
+
+# Make sure data directory exists for the embedded SQLite store.
+mkdir -p "${SYNOPKG_PKGVAR}/data" 2>/dev/null || true
+
+exit 0

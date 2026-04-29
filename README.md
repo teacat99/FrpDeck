@@ -50,6 +50,7 @@ FrpDeck 是一个面向个人服务器、NAS、家庭实验室和小团队内网
 | Docker / NAS 部署 | 可用 | GHCR / Docker Hub 镜像，多架构 |
 | Linux systemd / Windows Service | 可用 | `frpdeck-server install/start/stop/status` |
 | 飞牛 fnOS 应用包 | 可用 | x86 + ARM `.fpk`，应用中心一键安装 |
+| 群晖 DSM 7 SPK | 可用 | x86_64 + aarch64 `.spk`，套件中心手动安装 |
 | Android | 开发中 | WebView 复用 Web UI，VPN 能力按业务驱动 |
 | 桌面 GUI | 开发中 | Wails 形态已接入，真机 polish 继续推进 |
 
@@ -107,6 +108,25 @@ volumes:
 4. 用户配置目录在共享空间 `FrpDeck/`：`config.json` 改端口、`data/frpdeck.db` 是隧道数据库（可直接备份）
 
 源码与打包脚本在 [`nas/fnos/`](./nas/fnos/)，发布说明见 [飞牛应用包 README](./nas/fnos/README.md)。
+
+### 群晖 DSM 7（SPK 套件 / Container Manager 双轨）
+
+> 适用 DSM >= 7.0-40000，支持 x86_64 与 aarch64
+
+#### 路径 A：SPK 套件（套件中心一键体验）
+
+1. 套件中心 → 设置 → 套件来源 → 信任级别选「Synology Inc 及受信任的发行者」
+2. 从 [GitHub Releases](https://github.com/teacat99/FrpDeck/releases) 下载对应架构的 `.spk`：
+   - `frpdeck-x86_64-<version>.spk`（绝大多数家用 NAS）
+   - `frpdeck-aarch64-<version>.spk`（DS220+ / DS418j 等 ARM 群晖）
+3. 套件中心 → 右上角「手动安装」 → 选 `.spk` → 同意第三方警告 → 安装
+4. DSM 桌面出现 FrpDeck 图标，点击直接打开 Web UI（默认端口 18080）
+
+#### 路径 B：Container Manager（DSM 7.2+ 推荐）
+
+复用本仓库根目录的 `docker-compose.yaml` —— 把它丢到 `/volume1/docker/frpdeck/`，Container Manager「项目 → 新增 → 选目录」即可起。
+
+详细步骤、数据目录与卸载行为见 [群晖部署文档](./nas/synology/README.md)。
 
 ### Linux systemd
 

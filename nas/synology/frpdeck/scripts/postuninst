@@ -1,0 +1,5 @@
+#!/bin/sh
+# DSM auto-removes target/, tmp/, etc/, home/ on uninstall. var/ is preserved
+# by default (matches the FrpDeck contract: frpdeck.db survives reinstalls so
+# users do not lose tunnel configuration).
+exit 0

@@ -1,0 +1,6 @@
+#!/bin/sh
+# DSM already calls start-stop-status stop before uninstall in normal flow,
+# but a hard kill leaves a stale PID file — clear it so the next install
+# does not see ghosted state.
+rm -f "${SYNOPKG_PKGVAR}/frpdeck.pid" 2>/dev/null || true
+exit 0

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pre-install: nothing required. DSM auto-creates sc-frpdeck user + var/etc dirs
+# according to conf/privilege.
+exit 0

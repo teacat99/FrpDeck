@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-upgrade: snapshot SQLite into var/ so a botched migration is recoverable
+# from File Station even when target/ has already been replaced.
+SRC="${SYNOPKG_PKGVAR}/data/frpdeck.db"
+DST_DIR="${SYNOPKG_PKGVAR}/upgrade-backup"
+if [ -f "${SRC}" ]; then
+    mkdir -p "${DST_DIR}" 2>/dev/null || true
+    cp -f "${SRC}" "${DST_DIR}/frpdeck.db.${SYNOPKG_OLD_PKGVER:-prev}" 2>/dev/null || true
+fi
+exit 0

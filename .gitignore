@@ -6,7 +6,9 @@
 /dist/
 /build/
 nas/fnos/dist/
+nas/synology/dist/
 *.fpk
+*.spk
 
 # Wails 产物
 /build/bin/
