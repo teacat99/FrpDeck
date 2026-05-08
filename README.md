@@ -16,7 +16,7 @@
 | 项目 | 说明 |
 |---|---|
 | 定位 | 自托管场景下的 frpc 管理器 / 多 frps 控制台 |
-| 当前版本 | [v0.7.1](https://github.com/teacat99/FrpDeck/releases/tag/v0.7.1)（首个可下载 release，主线 P0–P10 全部落地 + release CI fix；v0.7.0 tag 因 docker job 缺凭证未出包，详见 [CHANGELOG](./CHANGELOG.md)） |
+| 当前版本 | [v0.7.2](https://github.com/teacat99/FrpDeck/releases/tag/v0.7.2)（补齐 Android APK + Wails 三平台桌面；v0.7.1 仅 NAS 双 + Docker；详见 [CHANGELOG](./CHANGELOG.md)） |
 | 当前状态 | 开发中，主干能力（Web UI / 服务化 / Docker / NAS / 远程代管 / Android / Profile / SubprocessDriver / 独立 CLI / Wails 桌面）已可用，进入真机回归与 polish 阶段 |
 | 内嵌 frp | `github.com/fatedier/frp` v0.68.x，跟随上游稳定版 |
 | 最低外部 frpc | v0.52.0（TOML/YAML/JSON 配置时代，不支持 INI 时代配置） |

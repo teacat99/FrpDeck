@@ -359,6 +359,16 @@ jobs:
           CGO_ENABLED: 1
         run: |
           set -euo pipefail
+          # Wails v2 expects the "project root" (cwd) to contain main.go;
+          # FrpDeck keeps the desktop entrypoint in cmd/server (alongside
+          # the headless / Wails-tagged main and the cgo tray bridges).
+          # `wails build` walks parent directories looking for wails.json,
+          # so the repo-root wails.json is still picked up — but the
+          # `frontend:dir` and `wailsjsdir` paths inside it are resolved
+          # relative to the wails.json file, not cwd, so they keep
+          # pointing at <repo>/frontend without further changes.
+          cd cmd/server
+
           # Use an array rather than a quoted string so the shell does
           # not pass an empty positional arg on non-Linux platforms
           # (which actionlint flagged as SC2086 word-splitting risk).
@@ -381,18 +391,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # wails build runs from cmd/server (see "Wails build" step), so
+          # the artefacts land under cmd/server/build/bin, not the
+          # repo-root build/bin you'd see for a single-entrypoint Wails
+          # project.
+          BIN_DIR="cmd/server/build/bin"
           case "${{ matrix.label }}" in
             linux-amd64)
               tar -czf "dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.tar.gz" \
-                -C build/bin frpdeck-desktop
+                -C "${BIN_DIR}" frpdeck-desktop
               echo "artifact=dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.tar.gz" >> "$GITHUB_OUTPUT"
               ;;
             darwin-universal)
-              ( cd build/bin && zip -r "../../dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" "FrpDeck.app" )
+              ( cd "${BIN_DIR}" && zip -r "${GITHUB_WORKSPACE}/dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" "FrpDeck.app" )
               echo "artifact=dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" >> "$GITHUB_OUTPUT"
               ;;
             windows-amd64)
-              ( cd build/bin && 7z a "../../dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" "frpdeck-desktop.exe" )
+              ( cd "${BIN_DIR}" && 7z a "${GITHUB_WORKSPACE}/dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" "frpdeck-desktop.exe" )
               echo "artifact=dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" >> "$GITHUB_OUTPUT"
               ;;
           esac

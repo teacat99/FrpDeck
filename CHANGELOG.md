@@ -18,6 +18,22 @@ FrpDeck 的所有重要变更都记录在这份文档里。格式参考 [Keep a 
 
 完整 backlog 详见 [`plan.md` §14.2](./plan.md)。
 
+## [0.7.2] - 2026-05-08
+
+补齐 v0.7.1 release pipeline 中没出包的两类 polish 形态：Android APK 与 Wails 三平台桌面。
+
+GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.2>
+
+### Fixed
+
+- **Android `gomobile bind` 失败**：`unable to import bind: no Go package in golang.org/x/mobile/bind`。原因是 `go.mod` 缺 `golang.org/x/mobile` 显式依赖（该 module 只被 `gomobile bind` 工具流隐式用到）；修复：`go get golang.org/x/mobile/bind@latest` + 新增 `mobile/frpdeckmobile/deps.go` 空导入 `_ "golang.org/x/mobile/bind"` 锚定 go.mod，避免后续 `go mod tidy` 把它当作"未使用"被 drop。
+- **Wails 三平台 `wails build` 失败**：`no Go files in /home/runner/work/FrpDeck/FrpDeck`。原因是 Wails CLI 默认假设 cwd（项目根）就是 main.go 所在目录，而 FrpDeck 的桌面入口在 `cmd/server/`（与 headless / Wails / 托盘 cgo 桥接共用同一目录）；修复：`release.yml` `wails-desktop` job 在 `wails build` 前 `cd cmd/server`。Wails 会沿父级目录回找 `wails.json`，且其中的 `frontend:dir` / `wailsjsdir` 解析时相对 wails.json 自身位置而非 cwd，因此仓库根的 `wails.json` 与 `frontend/` 仍然按原样工作；只有 `Package artefact` step 中 `build/bin` 路径变成了 `cmd/server/build/bin`。
+
+### Internal
+
+- `go.mod` 新增 `golang.org/x/mobile v0.0.0-20260410095206-2cfb76559b7b`（连带 `golang.org/x/mod`、`golang.org/x/tools` 小版本上调）。
+- 主线 commit / docker / NAS / CLI / Web UI / 协议层均无变化，与 v0.7.1 完全一致。
+
 ## [0.7.1] - 2026-05-08
 
 **用户视角的首个可下载 release。** 内容等价 v0.7.0 + 一处 release CI 修复。
