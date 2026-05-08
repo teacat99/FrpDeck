@@ -11,7 +11,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/kardianos/service v1.2.4
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/samber/lo v1.49.1
 	github.com/spf13/cobra v1.8.0
 	github.com/wailsapp/wails/v2 v2.10.2
