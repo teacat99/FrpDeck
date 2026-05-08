@@ -18,13 +18,34 @@ FrpDeck 的所有重要变更都记录在这份文档里。格式参考 [Keep a 
 
 完整 backlog 详见 [`plan.md` §14.2](./plan.md)。
 
-## [0.7.0] - 2026-05-08
+## [0.7.1] - 2026-05-08
 
-FrpDeck 的首个公开 Release。覆盖项目最初规划的 P0–P10 主线全部主干能力，构成一个可在 Docker / NAS / Linux service / Windows service / 桌面 / Android 上跑起来、并能通过独立 CLI 自救的多 frps 控制台。
+**用户视角的首个可下载 release。** 内容等价 v0.7.0 + 一处 release CI 修复。
 
-GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.0>
+> v0.7.0 git tag 已 push 但 release pipeline 因 docker job 缺 Docker Hub 凭证（仓库未配 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets）22 秒内崩，4 个产物 jobs 直接 cancel；GitHub Release 页面与所有产物均未生成。v0.7.1 是 v0.7.0 之后第一个 release pipeline 跑通、产物真正可下载的版本。
+>
+> 严格遵循「不撤回已 push 的 tag」原则，v0.7.0 git ref 保留；后续语义等价的特性变更全部以 v0.7.1 为起点引用。
 
-### Highlights
+GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.1>
+
+### Fixed
+
+- `.github/workflows/release.yml` 的 `docker` job 在缺 `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 时降级为仅推 GHCR；后续配置 secrets 时自动启用 Docker Hub mirror，不需再改 yml。
+- `fnos-fpk` / `synology-spk` / `android-apk` / `wails-desktop` 4 个产物 job 去掉对 `docker` job 的 `needs:` 依赖，让 docker job 的稳定性问题不再阻塞 NAS / Wails / Android 出包。
+
+### 同时包含 v0.7.0 段的全部 Added / Fixed / Internal
+
+详见下方 v0.7.0 段。
+
+## [0.7.0] - 2026-05-08 — *tag pushed, release pipeline failed*
+
+> 这一版的 git tag 已 push 到远程，但 release pipeline 因 docker job 缺 Docker Hub 凭证 22 秒内失败，没有生成任何 GitHub Release artefact。用户视角的首个可下载 release 是 [v0.7.1](#071---2026-05-08)，内容等价 + 一处 CI 修复。
+>
+> 此段保留是为了让 git tag 与 CHANGELOG 段一一对应，不当作"已发布"语义。
+
+FrpDeck 计划中的首个公开 Release。覆盖项目最初规划的 P0–P10 主线全部主干能力，构成一个可在 Docker / NAS / Linux service / Windows service / 桌面 / Android 上跑起来、并能通过独立 CLI 自救的多 frps 控制台。
+
+### Highlights（v0.7.0 计划内容；实际通过 v0.7.1 发布）
 
 - **多 frps 一等公民** + **临时隧道生命周期**两大核心理念落地，区别于现有「单 frps 桌面客户端」与「直接编辑 `frpc.toml`」两类方案。
 - **6 种部署形态** 全部可用：Docker（amd64/arm64/armv7）、飞牛 fnOS Native fpk（x86 + ARM）、群晖 DSM 7 SPK（x86_64 + aarch64）、Linux systemd、Windows Service、Wails 桌面（Linux/macOS/Windows）、Android（5 ABI APK，含 universal）。
