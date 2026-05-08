@@ -18,9 +18,25 @@ FrpDeck 的所有重要变更都记录在这份文档里。格式参考 [Keep a 
 
 完整 backlog 详见 [`plan.md` §14.2](./plan.md)。
 
+## [0.7.3] - 2026-05-08
+
+补齐 v0.7.2 仍未出包的 Wails 三平台桌面（v0.7.2 修了 Android）。
+
+GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.3>
+
+### Fixed
+
+- **Wails 三平台 `wails build` 仍报 wails.json 找不到**：`open .../cmd/server/wails.json: no such file or directory`。v0.7.2 让 release.yml `cd cmd/server` 跑 wails build，但 Wails CLI 不会沿父级目录回找 wails.json（与最初猜测相反）。修复：把 `wails.json` 从仓库根移到 `cmd/server/`，`frontend:dir` 与 `wailsjsdir` 改为 `../../frontend...`（路径相对 wails.json 自身位置）。本地 `wails dev` / `wails build` 同样需要在 `cmd/server` 下运行。
+
+### Internal
+
+- 主线 commit / docker / NAS / Android / CLI / Web UI / 协议层均无变化。
+
 ## [0.7.2] - 2026-05-08
 
 补齐 v0.7.1 release pipeline 中没出包的两类 polish 形态：Android APK 与 Wails 三平台桌面。
+
+> **Wails 三平台仍未出包**，原因详见 [v0.7.3](#073---2026-05-08)（cd cmd/server 不够，需要 wails.json 同样落到 cmd/server）。Android APK 5 文件首次出包，与 NAS 双 + Docker 一同构成本版本的产物。
 
 GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.2>
 

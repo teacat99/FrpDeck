@@ -359,14 +359,12 @@ jobs:
           CGO_ENABLED: 1
         run: |
           set -euo pipefail
-          # Wails v2 expects the "project root" (cwd) to contain main.go;
-          # FrpDeck keeps the desktop entrypoint in cmd/server (alongside
-          # the headless / Wails-tagged main and the cgo tray bridges).
-          # `wails build` walks parent directories looking for wails.json,
-          # so the repo-root wails.json is still picked up — but the
-          # `frontend:dir` and `wailsjsdir` paths inside it are resolved
-          # relative to the wails.json file, not cwd, so they keep
-          # pointing at <repo>/frontend without further changes.
+          # Wails v2 expects cwd to contain BOTH main.go AND wails.json
+          # (it doesn't walk parent directories). FrpDeck's desktop
+          # entrypoint lives in cmd/server alongside the Wails-tagged
+          # main and the cgo tray bridges, so wails.json was moved
+          # there too with frontend:dir / wailsjsdir adjusted to
+          # ../../frontend (paths are relative to wails.json's location).
           cd cmd/server
 
           # Use an array rather than a quoted string so the shell does
