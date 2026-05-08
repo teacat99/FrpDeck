@@ -370,6 +370,10 @@ jobs:
           # Use an array rather than a quoted string so the shell does
           # not pass an empty positional arg on non-Linux platforms
           # (which actionlint flagged as SC2086 word-splitting risk).
+          # Bash 3.x on macOS treats `"${arr[@]}"` of an empty array as
+          # "unbound" under `set -u`; the `${arr[@]+...}` conditional
+          # expansion expands to nothing if the array is empty/unset
+          # and to the quoted elements otherwise — works in bash 3+.
           extra_args=()
           if [ "${{ runner.os }}" = "Linux" ]; then
             # Ubuntu 24.04 ships webkit2gtk-4.1 only; Wails defaults
@@ -381,7 +385,7 @@ jobs:
             -ldflags "-X 'main.appVersion=${APP_VERSION}'" \
             -skipbindings \
             -clean \
-            "${extra_args[@]}"
+            ${extra_args[@]+"${extra_args[@]}"}
 
       - name: Package artefact
         id: pack

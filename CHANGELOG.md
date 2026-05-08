@@ -18,9 +18,25 @@ FrpDeck 的所有重要变更都记录在这份文档里。格式参考 [Keep a 
 
 完整 backlog 详见 [`plan.md` §14.2](./plan.md)。
 
+## [0.7.4] - 2026-05-08
+
+补齐 v0.7.3 仍未出包的 Wails macOS universal 桌面。
+
+GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.4>
+
+### Fixed
+
+- **Wails macOS universal `wails build` 报 `extra_args[@]: unbound variable`**：macOS runner 的 `bash 3.x`（仍是 Apple-shipped 默认）在 `set -u` 下展开空数组 `"${arr[@]}"` 会触发"unbound"错误；Linux runner 是 bash 4+ 不会触发，所以 v0.7.3 Linux/Windows wails build 都过了。修复：把数组扩展从 `"${extra_args[@]}"` 改为 `${extra_args[@]+"${extra_args[@]}"}` 的 conditional expansion 形式 —— 数组未设置或为空时展开为空，已设置时展开为带引号元素列表，bash 3+ 都兼容。
+
+### Internal
+
+- 主线 commit / docker / NAS / Android / Wails Linux/Win / CLI / Web UI / 协议层均无变化。
+
 ## [0.7.3] - 2026-05-08
 
 补齐 v0.7.2 仍未出包的 Wails 三平台桌面（v0.7.2 修了 Android）。
+
+> **Wails macOS universal 仍未出包**，原因详见 [v0.7.4](#074---2026-05-08)（macOS bash 3.x 空数组 + set -u 问题）。Wails Linux / Windows 桌面首次出包，与 NAS 双 + Docker + Android 一同构成本版本的产物（11 个）。
 
 GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.3>
 
