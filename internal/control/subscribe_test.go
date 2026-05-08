@@ -12,16 +12,19 @@ import (
 // fakeBus mimics the daemon's adapter goroutine: it lets the test
 // inject events into the channel that the server's Subscribe
 // handler receives, and provides a cancel func with idempotent
-// semantics.
+// semantics. It also records the `since` argument so tests can
+// confirm the wire-level since_ns plumbing reaches the handler.
 type fakeBus struct {
-	ch chan json.RawMessage
+	ch        chan json.RawMessage
+	lastSince time.Time
 }
 
 func newFakeBus() *fakeBus {
 	return &fakeBus{ch: make(chan json.RawMessage, 16)}
 }
 
-func (b *fakeBus) handler(ctx context.Context) (<-chan json.RawMessage, func()) {
+func (b *fakeBus) handler(ctx context.Context, since time.Time) (<-chan json.RawMessage, func()) {
+	b.lastSince = since
 	return b.ch, func() {
 		// Closing twice would panic; the test publishes the close
 		// itself when it wants to terminate the subscription.
@@ -73,6 +76,28 @@ func TestSubscribeStreaming_TypeFilterAppliedDaemonSide(t *testing.T) {
 	got := drainN(t, events, 1, 2*time.Second)
 	if string(got[0]) != `{"type":"log","msg":"keep me"}` {
 		t.Errorf("kept = %s", got[0])
+	}
+}
+
+func TestSubscribeStreaming_SinceArgReachesHandler(t *testing.T) {
+	bus := newFakeBus()
+	c, _ := newTestServer(t, Handlers{
+		Subscribe: bus.handler,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	want := time.Unix(1700000000, 12345).UTC()
+	_, stop, err := c.Subscribe(ctx, SubscribeOptions{Since: want})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer stop()
+
+	time.Sleep(50 * time.Millisecond)
+	got := bus.lastSince
+	if !got.Equal(want) {
+		t.Fatalf("handler since = %v, want %v", got, want)
 	}
 }
 

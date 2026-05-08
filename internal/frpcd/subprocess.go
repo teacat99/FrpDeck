@@ -66,6 +66,11 @@ func (s *Subprocess) Name() string { return "subprocess" }
 // Subscribe registers a fan-out subscriber on the driver's EventBus.
 func (s *Subprocess) Subscribe() (<-chan Event, func()) { return s.bus.Subscribe() }
 
+// ReplayEvents forwards to the bus's ring buffer so callers (the CLI
+// `logs --since` path) can pull recent history without first having
+// been subscribed.
+func (s *Subprocess) ReplayEvents(since time.Time) []Event { return s.bus.Replay(since) }
+
 // PublishEvent forwards an externally-produced event onto the bus so the
 // WebSocket layer / lifecycle reconciler see it alongside engine events.
 func (s *Subprocess) PublishEvent(ev Event) { s.bus.Publish(ev) }

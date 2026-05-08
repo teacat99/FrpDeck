@@ -141,6 +141,14 @@ type SubscribeOptions struct {
 
 	// TunnelID restricts events to a single tunnel. 0 = all.
 	TunnelID uint
+
+	// Since, when non-zero, asks the daemon to replay any ring-buffered
+	// events whose At timestamp is strictly newer than this point in
+	// time before forwarding live events. The CLI computes this
+	// from `--since 5m` style flags; passing the absolute time
+	// (rather than a duration) keeps the wire encoding unambiguous
+	// when client and daemon clocks drift.
+	Since time.Time
 }
 
 // Subscribe opens a streaming connection and returns a channel of
@@ -175,6 +183,9 @@ func (c *Client) Subscribe(ctx context.Context, opts SubscribeOptions) (<-chan j
 	}
 	if opts.TunnelID != 0 {
 		args["tunnel_id"] = strconv.FormatUint(uint64(opts.TunnelID), 10)
+	}
+	if !opts.Since.IsZero() {
+		args[SubscribeSinceArg] = strconv.FormatInt(opts.Since.UnixNano(), 10)
 	}
 
 	buf, err := Encode(Request{Command: CmdSubscribe, Args: args})

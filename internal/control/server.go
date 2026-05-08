@@ -32,6 +32,16 @@ import (
 	"time"
 )
 
+// SubscribeSinceArg is the wire-level Args key carrying the optional
+// "replay history newer than this point in time" parameter for
+// CmdSubscribe. Encoded as an integer Unix nanosecond timestamp so
+// both sides can avoid pulling in time-zone parsing on the hot path.
+//
+// We expose the constant so the daemon-side adapter and the CLI
+// share one source of truth (typo in either side would silently
+// degrade to "no replay" otherwise).
+const SubscribeSinceArg = "since_ns"
+
 // Handlers wires the daemon's actions to the wire commands. Every
 // field is optional: a nil handler short-circuits with
 // "command not supported" so the daemon can advertise a partial
@@ -65,11 +75,17 @@ type Handlers struct {
 	// are encoded as raw JSON so this package does not need to
 	// depend on internal/frpcd.
 	//
+	// `since` controls history replay: when non-zero, the
+	// implementation prepends events from the bus's ring buffer
+	// whose At timestamp is strictly newer than `since`, in
+	// chronological order, before live events. A zero `since`
+	// means "live only", matching the original P10-C wire shape.
+	//
 	// When nil, CmdSubscribe responds with "no handler" and the
 	// connection closes immediately — keeping the protocol
 	// forward-compatible with daemon builds that do not link the
 	// driver event bus.
-	Subscribe func(ctx context.Context) (<-chan json.RawMessage, func())
+	Subscribe func(ctx context.Context, since time.Time) (<-chan json.RawMessage, func())
 
 	// Invoke dispatches a typed business RPC. method names a row in
 	// the daemon-side dispatch table (e.g. "remote.invite"); body
@@ -283,10 +299,11 @@ func (s *Server) handleSubscribe(conn net.Conn, req Request) {
 	allow := parseTypeFilter(req.Args["type"])
 	endpointID := parseUintArg(req.Args["endpoint_id"])
 	tunnelID := parseUintArg(req.Args["tunnel_id"])
+	since := parseSinceArg(req.Args[SubscribeSinceArg])
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	events, unsub := s.handlers.Subscribe(ctx)
+	events, unsub := s.handlers.Subscribe(ctx, since)
 	defer unsub()
 
 	// Ack: tells the CLI "subscription live". Errors here are
@@ -465,6 +482,23 @@ func parseUintArg(raw string) uint {
 		return 0
 	}
 	return uint(v)
+}
+
+// parseSinceArg interprets the wire "since_ns" argument, expressed as
+// a signed int64 Unix-nano timestamp. Empty / unparseable / non-positive
+// values fold into the zero time so the daemon adapter treats them as
+// "no replay, live stream only" — that is the safest default if a
+// future client encodes the field differently.
+func parseSinceArg(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, v)
 }
 
 // subscribePassesFilter decodes just enough of the raw event JSON to

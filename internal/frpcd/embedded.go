@@ -66,6 +66,11 @@ func (e *Embedded) Name() string { return "embedded" }
 // driver until the returned cancel func is invoked.
 func (e *Embedded) Subscribe() (<-chan Event, func()) { return e.bus.Subscribe() }
 
+// ReplayEvents forwards to the EventBus's ring so `frpdeck logs
+// --since 5m` can answer "what happened recently" against the
+// in-process driver too.
+func (e *Embedded) ReplayEvents(since time.Time) []Event { return e.bus.Replay(since) }
+
 // PublishEvent forwards an externally-sourced event onto the driver's
 // bus so subscribers (WebSocket / lifecycle / tests) see it alongside
 // engine-emitted events.

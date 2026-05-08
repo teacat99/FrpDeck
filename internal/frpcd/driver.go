@@ -76,6 +76,14 @@ type FrpDriver interface {
 	// fan-out is already listening on, so the UI layer does not need a
 	// second subscription path.
 	PublishEvent(Event)
+
+	// ReplayEvents returns ring-buffered events whose timestamp is
+	// strictly newer than `since`, oldest-first. A zero `since`
+	// returns the whole ring. Implementations forward to their
+	// internal *EventBus.Replay so `frpdeck logs --since 5m` (and
+	// any future "what did I miss?" UX) gets the same answer
+	// regardless of driver flavour.
+	ReplayEvents(since time.Time) []Event
 }
 
 // DriverOptions carries the cross-cutting bits of context that some

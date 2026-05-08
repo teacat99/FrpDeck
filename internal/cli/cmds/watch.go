@@ -43,11 +43,12 @@ func NewWatchCmd(opts *GlobalOptions) *cobra.Command {
 
 func newWatchEndpointsCmd(opts *GlobalOptions) *cobra.Command {
 	var interval time.Duration
+	var once bool
 	c := &cobra.Command{
 		Use:   "endpoints",
 		Short: "Live-refresh endpoint table",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWatch(cmd, opts, interval, func(w io.Writer) error {
+			return runWatch(cmd, opts, interval, once, func(w io.Writer) error {
 				st, closer, err := opts.OpenStore()
 				if err != nil {
 					return err
@@ -75,17 +76,19 @@ func newWatchEndpointsCmd(opts *GlobalOptions) *cobra.Command {
 		},
 	}
 	c.Flags().DurationVar(&interval, "interval", 5*time.Second, "Refresh interval")
+	c.Flags().BoolVar(&once, "once", false, "Render one frame and exit (no clear-screen, no ticker — for scripting)")
 	return c
 }
 
 func newWatchTunnelsCmd(opts *GlobalOptions) *cobra.Command {
 	var interval time.Duration
 	var endpointRef string
+	var once bool
 	c := &cobra.Command{
 		Use:   "tunnels",
 		Short: "Live-refresh tunnel table",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWatch(cmd, opts, interval, func(w io.Writer) error {
+			return runWatch(cmd, opts, interval, once, func(w io.Writer) error {
 				st, closer, err := opts.OpenStore()
 				if err != nil {
 					return err
@@ -132,6 +135,7 @@ func newWatchTunnelsCmd(opts *GlobalOptions) *cobra.Command {
 	}
 	c.Flags().DurationVar(&interval, "interval", 5*time.Second, "Refresh interval")
 	c.Flags().StringVar(&endpointRef, "endpoint", "", "Filter to a single endpoint (id or name)")
+	c.Flags().BoolVar(&once, "once", false, "Render one frame and exit (no clear-screen, no ticker — for scripting)")
 	return c
 }
 
@@ -143,18 +147,26 @@ func newWatchTunnelsCmd(opts *GlobalOptions) *cobra.Command {
 // pull in 1-2MB of additional binary, and (b) FrpDeck CLI users are
 // far more likely to want to scroll back to a previous frame than
 // they are to want full-screen interactivity.
-func runWatch(cmd *cobra.Command, opts *GlobalOptions, interval time.Duration, render func(io.Writer) error) error {
+//
+// `once` short-circuits to a single render — no clear-screen, no
+// ticker, no signal trap — so cron / shell scripts can capture a
+// frame without taking on the live-refresh UX.
+func runWatch(cmd *cobra.Command, opts *GlobalOptions, interval time.Duration, once bool, render func(io.Writer) error) error {
+	out := cmd.OutOrStdout()
+	if once {
+		return watchFrame(out, opts, render, true)
+	}
+
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	out := cmd.OutOrStdout()
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 
-	if err := watchFrame(out, opts, render); err != nil {
+	if err := watchFrame(out, opts, render, false); err != nil {
 		return err
 	}
 	for {
@@ -163,7 +175,7 @@ func runWatch(cmd *cobra.Command, opts *GlobalOptions, interval time.Duration, r
 			fmt.Fprintln(out, "")
 			return nil
 		case <-tick.C:
-			if err := watchFrame(out, opts, render); err != nil {
+			if err := watchFrame(out, opts, render, false); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
@@ -174,13 +186,20 @@ func runWatch(cmd *cobra.Command, opts *GlobalOptions, interval time.Duration, r
 }
 
 // watchFrame clears the screen and renders one frame. Header comes
-// from the watch loop so per-view renderers stay generic.
-func watchFrame(out io.Writer, opts *GlobalOptions, render func(io.Writer) error) error {
-	if isInteractiveTTY(out) {
+// from the watch loop so per-view renderers stay generic. In --once
+// mode we skip both the clear-screen escape sequence and the
+// "Ctrl+C to exit" suffix because there is no loop to interrupt.
+func watchFrame(out io.Writer, opts *GlobalOptions, render func(io.Writer) error, once bool) error {
+	if !once && isInteractiveTTY(out) {
 		fmt.Fprint(out, "\x1b[H\x1b[2J")
 	}
-	fmt.Fprintf(out, "frpdeck watch — %s — data-dir %s — Ctrl+C to exit\n\n",
-		time.Now().Format("2006-01-02 15:04:05"), opts.DataDir)
+	if once {
+		fmt.Fprintf(out, "frpdeck watch — %s — data-dir %s\n\n",
+			time.Now().Format("2006-01-02 15:04:05"), opts.DataDir)
+	} else {
+		fmt.Fprintf(out, "frpdeck watch — %s — data-dir %s — Ctrl+C to exit\n\n",
+			time.Now().Format("2006-01-02 15:04:05"), opts.DataDir)
+	}
 	return render(out)
 }
 

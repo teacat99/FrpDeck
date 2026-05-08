@@ -41,3 +41,24 @@ jobs:
 
       - name: Go build
         run: go build ./...
+
+  # actionlint is a static analyser for GitHub Actions workflow files.
+  # It catches >40 classes of bugs that would otherwise only surface
+  # at run time (typos in expressions, missing required fields,
+  # invalid runs-on labels, shellcheck issues inside `run:` blocks).
+  # Runs in parallel with `build` so a slow lint never holds up the
+  # main pipeline; we land it as a hard gate because the existing
+  # release.yml + ci.yml are clean (verified locally pre-merge), so
+  # any new warning is by definition a regression worth blocking.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            -w /repo \
+            rhysd/actionlint:latest \
+              -color

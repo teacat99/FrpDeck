@@ -179,8 +179,10 @@ frpdeck import frpc.toml --endpoint nas --default-on-conflict rename
 frpdeck runtime set max_duration_hours 12
 
 # 实时观测
-frpdeck logs --follow
-frpdeck watch tunnels
+frpdeck logs --follow                  # 直到 Ctrl+C
+frpdeck logs --since 5m                # 回放 daemon ring buffer 中近 5 分钟事件
+frpdeck watch tunnels                  # 5 秒一帧自动刷新
+frpdeck watch tunnels --once           # 渲染一帧后退出，方便脚本 / cron 抓取
 
 # 远程代管节点
 frpdeck remote nodes list
@@ -254,7 +256,7 @@ npm run build
 - P9：群晖 SPK / 飞牛应用市场打包与分发。
 - 桌面 GUI polish：真机验收、托盘细节、macOS 状态栏。
 - Android 真机回归：WebView UI、自动登录、配置驱动 VPN。
-- CLI polish：`logs --since` 历史回放、`watch --once`、更多脚本化输出细节。
+- CLI polish：更多脚本化输出格式、`logs` ring buffer 持久化探索、`completion fish` 等。
 
 ## 与 PortPass 的关系
 

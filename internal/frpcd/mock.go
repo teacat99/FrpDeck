@@ -35,6 +35,10 @@ func NewMock() *Mock {
 // publishes events on its own, but tests can inject events through it.
 func (m *Mock) Subscribe() (<-chan Event, func()) { return m.bus.Subscribe() }
 
+// ReplayEvents satisfies the FrpDriver contract; tests can inspect
+// the recorded history through the same path the CLI uses in prod.
+func (m *Mock) ReplayEvents(since time.Time) []Event { return m.bus.Replay(since) }
+
 // PublishEvent forwards an externally-sourced event onto the mock's
 // bus. Mirrors the embedded driver so lifecycle code paths behave
 // identically under test.

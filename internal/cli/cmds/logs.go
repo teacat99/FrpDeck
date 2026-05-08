@@ -55,13 +55,14 @@ Filters --type / --endpoint / --tunnel are applied daemon-side so a
 chatty bus does not flood the socket. --level filters log lines by
 level (info/warn/error) on the CLI side.
 
---since "5m" replays nothing — the event bus is forward-only — but
-the flag is reserved for forward compatibility once the daemon grows
-a ring buffer.`,
+--since "5m" first replays buffered events from the daemon's ring
+(default 1024-deep, ~5 minutes of typical traffic) before continuing
+in either one-shot or --follow mode. The ring is volatile: events
+older than the buffer's oldest entry cannot be retrieved.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, closer, err := opts.OpenStore()
 			if err != nil {
-				return err
+				return formatLogsStoreErr(opts, err)
 			}
 			defer closer()
 
@@ -91,7 +92,7 @@ a ring buffer.`,
 			}
 			levelLower := strings.ToLower(strings.TrimSpace(level))
 			if since > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "logs: --since is reserved for the future event ring buffer; ignored for now")
+				subOpts.Since = time.Now().Add(-since)
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -99,7 +100,7 @@ a ring buffer.`,
 			events, cancelSub, err := opts.SocketClient.Subscribe(ctx, subOpts)
 			if err != nil {
 				if errors.Is(err, control.ErrDaemonNotRunning) {
-					return errors.New("daemon is not running; logs only stream when frpdeck-server is up")
+					return formatLogsDaemonOfflineErr(opts)
 				}
 				return err
 			}
@@ -119,10 +120,18 @@ a ring buffer.`,
 			renderer := pickLogsRenderer(opts.Format)
 			var deadline <-chan time.Time
 			if !follow {
-				if windowDur <= 0 {
-					windowDur = 100 * time.Millisecond
+				// Replaying history can take a moment when the
+				// ring is full; give the daemon at least 250ms
+				// extra so a `logs --since 5m` one-shot does not
+				// accidentally truncate the replay window.
+				w := windowDur
+				if w <= 0 {
+					w = 100 * time.Millisecond
 				}
-				deadline = time.After(windowDur)
+				if since > 0 && w < 1*time.Second {
+					w = 1 * time.Second
+				}
+				deadline = time.After(w)
 			}
 
 			for {
@@ -157,9 +166,50 @@ a ring buffer.`,
 	c.Flags().StringVar(&endpointRef, "endpoint", "", "Filter to a single endpoint (id or name)")
 	c.Flags().StringVar(&tunnelRef, "tunnel", "", "Filter to a single tunnel (id or [endpoint/]name)")
 	c.Flags().StringVar(&level, "level", "", "Filter log lines by level: info | warn | error (CLI-side filter)")
-	c.Flags().DurationVar(&since, "since", 0, "(reserved) replay events newer than this duration")
+	c.Flags().DurationVar(&since, "since", 0, "Replay buffered events newer than this duration (e.g. 5m). Default 0 = live only")
 	c.Flags().DurationVar(&windowDur, "window", 100*time.Millisecond, "One-shot mode: how long to listen before exiting")
 	return c
+}
+
+// formatLogsDaemonOfflineErr produces a more actionable message for
+// the (very common) failure mode where the operator types
+// `frpdeck logs` before they have started frpdeck-server. We surface
+// the exact socket path the client tried so the user can decide
+// quickly between "wrong DataDir" and "service not running yet".
+func formatLogsDaemonOfflineErr(opts *GlobalOptions) error {
+	if opts == nil || opts.SocketClient == nil {
+		return errors.New("frpdeck daemon is not running; start frpdeck-server first (logs requires the live event bus)")
+	}
+	return fmt.Errorf(
+		"frpdeck daemon is not running; start frpdeck-server first (logs requires the live event bus)\n"+
+			"  socket path checked: %s",
+		opts.SocketClient.SocketPath(),
+	)
+}
+
+// formatLogsStoreErr wraps the dbopen failure so users land on the
+// concrete next step rather than the dry "frpdeck.db not found"
+// from the underlying helper. logs needs the SQLite store only to
+// resolve endpoint/tunnel names when rendering — when this fails
+// the operator almost always wants to either:
+//
+//   - start frpdeck-server (which seeds the DB on first launch), or
+//   - point --data-dir at the actual instance.
+//
+// We keep the original error text appended so log scrapers / CI
+// captures still see the canonical sentinel.
+func formatLogsStoreErr(opts *GlobalOptions, err error) error {
+	dataDir := ""
+	if opts != nil {
+		dataDir = opts.DataDir
+	}
+	return fmt.Errorf(
+		"logs needs frpdeck.db to label endpoints / tunnels — start frpdeck-server "+
+			"(it seeds the database on first launch) or point --data-dir at the right instance.\n"+
+			"  data-dir checked: %s\n"+
+			"  underlying error: %v",
+		dataDir, err,
+	)
 }
 
 // pickLogsRenderer returns the per-event formatter for the requested

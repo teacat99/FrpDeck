@@ -341,18 +341,21 @@ jobs:
           CGO_ENABLED: 1
         run: |
           set -euo pipefail
-          extra_tags=""
+          # Use an array rather than a quoted string so the shell does
+          # not pass an empty positional arg on non-Linux platforms
+          # (which actionlint flagged as SC2086 word-splitting risk).
+          extra_args=()
           if [ "${{ runner.os }}" = "Linux" ]; then
             # Ubuntu 24.04 ships webkit2gtk-4.1 only; Wails defaults
             # to 4.0 unless we opt in via this build tag.
-            extra_tags="-tags webkit2_41"
+            extra_args+=(-tags webkit2_41)
           fi
           wails build \
             -platform "${{ matrix.platform }}" \
             -ldflags "-X 'main.appVersion=${APP_VERSION}'" \
             -skipbindings \
             -clean \
-            ${extra_tags}
+            "${extra_args[@]}"
 
       - name: Package artefact
         id: pack

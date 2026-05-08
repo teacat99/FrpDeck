@@ -121,13 +121,13 @@ func (r *Runtime) StartControl(version string) {
 			}
 			return r.Settings.LoadFromKV(r.Store.LookupSetting)
 		},
-		Subscribe: func(ctx context.Context) (<-chan json.RawMessage, func()) {
+		Subscribe: func(ctx context.Context, since time.Time) (<-chan json.RawMessage, func()) {
 			if r.Driver == nil {
 				ch := make(chan json.RawMessage)
 				close(ch)
 				return ch, func() {}
 			}
-			return adaptDriverSubscribe(ctx, r.Driver)
+			return adaptDriverSubscribe(ctx, r.Driver, since)
 		},
 		Invoke: r.dispatchInvoke,
 	})
@@ -311,12 +311,31 @@ func (r *Runtime) dispatchInvoke(ctx context.Context, method string, body json.R
 // stays free of an internal/frpcd import; the trade-off (one extra
 // allocation per event) is negligible compared to the 64-slot
 // EventBus buffer.
-func adaptDriverSubscribe(ctx context.Context, drv frpcd.FrpDriver) (<-chan json.RawMessage, func()) {
+//
+// When `since` is non-zero, history from the driver's ring buffer
+// is replayed first (oldest-first) before live events are
+// forwarded. The replay is best-effort: if a subscriber is too slow
+// to drain the ring, history events are dropped on full just like
+// live ones — better to surface stale state than to wedge the bus.
+func adaptDriverSubscribe(ctx context.Context, drv frpcd.FrpDriver, since time.Time) (<-chan json.RawMessage, func()) {
 	src, unsub := drv.Subscribe()
 	out := make(chan json.RawMessage, 64)
 	go func() {
 		defer close(out)
 		defer unsub()
+		if !since.IsZero() {
+			for _, ev := range drv.ReplayEvents(since) {
+				raw, err := json.Marshal(ev)
+				if err != nil {
+					continue
+				}
+				select {
+				case out <- raw:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
