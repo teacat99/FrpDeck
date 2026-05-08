@@ -16,7 +16,7 @@
 | 项目 | 说明 |
 |---|---|
 | 定位 | 自托管场景下的 frpc 管理器 / 多 frps 控制台 |
-| 当前版本 | [v0.7.4](https://github.com/teacat99/FrpDeck/releases/tag/v0.7.4)（6 种部署形态全部出包，含 Wails macOS universal；详见 [CHANGELOG](./CHANGELOG.md)） |
+| 当前版本 | [v0.7.5](https://github.com/teacat99/FrpDeck/releases/tag/v0.7.5)（6 种部署形态全部出包，macOS Wails 拆 arm64 + amd64 双独立包；详见 [CHANGELOG](./CHANGELOG.md)） |
 | 当前状态 | 开发中，主干能力（Web UI / 服务化 / Docker / NAS / 远程代管 / Android / Profile / SubprocessDriver / 独立 CLI / Wails 桌面）已可用，进入真机回归与 polish 阶段 |
 | 内嵌 frp | `github.com/fatedier/frp` v0.68.x，跟随上游稳定版 |
 | 最低外部 frpc | v0.52.0（TOML/YAML/JSON 配置时代，不支持 INI 时代配置） |
@@ -53,7 +53,7 @@ FrpDeck 是一个面向个人服务器、NAS、家庭实验室和小团队内网
 | 飞牛 fnOS 应用包 | 可用 | x86 + ARM `.fpk`，应用中心一键安装 |
 | 群晖 DSM 7 SPK | 可用 | x86_64 + aarch64 `.spk`，套件中心手动安装 |
 | Android | 可用 | WebView 复用 Web UI，VPN 能力按业务驱动；GitHub Release 提供 5 个 APK（universal + 4 ABI） |
-| 桌面 GUI | 可用 | Wails (Linux/macOS/Windows)；macOS NSStatusItem 托盘 v0.1；CI 三平台产物上传 GitHub Release |
+| 桌面 GUI | 可用 | Wails (Linux / macOS arm64+amd64 / Windows)；macOS NSStatusItem 托盘 v0.1；CI 四平台产物上传 GitHub Release |
 
 ## 快速部署
 

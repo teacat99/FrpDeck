@@ -18,9 +18,26 @@ FrpDeck 的所有重要变更都记录在这份文档里。格式参考 [Keep a 
 
 完整 backlog 详见 [`plan.md` §14.2](./plan.md)。
 
+## [0.7.5] - 2026-05-08
+
+最终补齐 macOS Wails 桌面，6 种部署形态全部出包并稳定。
+
+GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.5>
+
+### Changed
+
+- **macOS Wails 发版策略：从 `darwin/universal` 单包改为 `darwin/amd64` + `darwin/arm64` 双独立包。** GitHub 的 `macos-latest` 现在已经是 Apple Silicon (ARM)，让 wails 从 ARM host 跨架构编译 amd64 universal 时 cgo 不会全程开启，触发 `wails_tray_darwin.m: Objective-C source files not allowed when not using cgo or SWIG`；解决方案是各架构各自走 native runner（`macos-latest` 出 arm64，`macos-15-intel` 出 amd64），不走 `lipo` 合并 universal。Intel Mac 与 Apple Silicon 用户从 GitHub Release 下载对应包即可，体验上等价。
+
+### Internal
+
+- `release.yml` `wails-desktop` matrix 由 3 行扩到 4 行（linux-amd64 / darwin-arm64 / darwin-amd64 / windows-amd64）。
+- 主线 commit / docker / NAS / Android / CLI / Web UI / 协议层均无变化。
+
 ## [0.7.4] - 2026-05-08
 
 补齐 v0.7.3 仍未出包的 Wails macOS universal 桌面。
+
+> **macOS Wails universal 出包仍失败**（`wails_tray_darwin.m: Objective-C source files not allowed when not using cgo or SWIG`），原因详见 [v0.7.5](#075---2026-05-08)（cross-compile cgo 链路问题，最终改成双 native arch 而非 universal）。Wails Linux + Windows、Android、NAS 双、Docker 一同构成本版本的 11+1 个产物。
 
 GitHub Release: <https://github.com/teacat99/FrpDeck/releases/tag/v0.7.4>
 

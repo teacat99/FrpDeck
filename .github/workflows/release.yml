@@ -296,14 +296,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # darwin is split into per-arch native runners rather than a
+        # single `darwin/universal` build: GitHub's `macos-latest` is now
+        # Apple Silicon (ARM), and asking wails to cross-compile to
+        # amd64 from an ARM host trips up cgo for Objective-C source
+        # files (`wails_tray_darwin.m`) — `not allowed when not using
+        # cgo or SWIG`. `macos-15-intel` handles amd64 natively, so we
+        # let each architecture build on its own native runner and
+        # ship two darwin .zip files instead of one universal binary.
         include:
           - os: ubuntu-latest
             label: linux-amd64
             platform: linux/amd64
             archive_ext: tar.gz
           - os: macos-latest
-            label: darwin-universal
-            platform: darwin/universal
+            label: darwin-arm64
+            platform: darwin/arm64
+            archive_ext: zip
+          - os: macos-15-intel
+            label: darwin-amd64
+            platform: darwin/amd64
             archive_ext: zip
           - os: windows-latest
             label: windows-amd64
@@ -404,7 +416,7 @@ jobs:
                 -C "${BIN_DIR}" frpdeck-desktop
               echo "artifact=dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.tar.gz" >> "$GITHUB_OUTPUT"
               ;;
-            darwin-universal)
+            darwin-arm64|darwin-amd64)
               ( cd "${BIN_DIR}" && zip -r "${GITHUB_WORKSPACE}/dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" "FrpDeck.app" )
               echo "artifact=dist/frpdeck-desktop-${APP_VERSION}-${{ matrix.label }}.zip" >> "$GITHUB_OUTPUT"
               ;;
