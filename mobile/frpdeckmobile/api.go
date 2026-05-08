@@ -560,9 +560,22 @@ func mountStatic(r *gin.Engine) {
 	})
 }
 
-// Version returns a short string describing the bundled frp version
-// the embedded driver speaks. The Android UI uses this to render
-// "FrpDeck — frp v0.68.1" in the about screen.
+// appVersion is overridden at link time via
+//
+//	-ldflags "-X 'github.com/teacat99/FrpDeck/mobile/frpdeckmobile.appVersion=v0.7.0'"
+//
+// android/scripts/build-aar.sh + release.yml plumb $APP_VERSION /
+// $GITHUB_REF_NAME through this variable so the Android "About" page
+// can render the same version string as `frpdeck-server version`.
+// Kept in lower-case + unexported so gomobile does not generate a
+// Java getter for it; callers must go through Version() instead.
+var appVersion = "dev"
+
+// Version returns a short string describing the FrpDeck build the
+// Android shell is hosting plus the bundled frp client version, e.g.
+// "frpdeck v0.7.0 (frp v0.68.1)". When linked without -ldflags the
+// FrpDeck portion shows "dev" so local development builds remain
+// distinguishable from CI artefacts.
 func Version() string {
-	return "frp " + frpcd.BundledFrpVersion
+	return "frpdeck " + appVersion + " (frp " + frpcd.BundledFrpVersion + ")"
 }

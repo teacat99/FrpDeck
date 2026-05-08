@@ -25,6 +25,22 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// CI / release.yml passes APP_VERSION=$GITHUB_REF_NAME (e.g. "v0.7.0").
+// Strip the leading 'v' so the resulting versionName looks like "0.7.0",
+// matching DSM 7 / fnOS / Docker conventions. Local builds fall back to
+// "0.1.0" so anyone running ./gradlew assembleRelease cold still gets a
+// well-formed APK manifest. FRPDECK_VERSION_CODE lets release tooling
+// bump the integer monotonically; default 1 covers the dev case.
+val frpdeckVersionName: String = run {
+    val raw = (System.getenv("APP_VERSION") ?: "").trim()
+    when {
+        raw.isEmpty() -> "0.1.0"
+        raw.startsWith("v") -> raw.removePrefix("v")
+        else -> raw
+    }
+}
+val frpdeckVersionCode: Int = System.getenv("FRPDECK_VERSION_CODE")?.toIntOrNull() ?: 1
+
 android {
     namespace = "io.teacat.frpdeck"
     compileSdk = 34
@@ -33,8 +49,8 @@ android {
         applicationId = "io.teacat.frpdeck"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = frpdeckVersionCode
+        versionName = frpdeckVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

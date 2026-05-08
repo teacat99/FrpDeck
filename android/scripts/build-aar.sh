@@ -11,6 +11,10 @@
 # Optional environment:
 #   FRPDECK_ABI       — comma-separated, default "android" (== all 4 ABIs)
 #                       use "android/arm64" for fast iteration
+#   APP_VERSION       — version stamp baked into the AAR via -ldflags;
+#                       defaults to "dev" for local iteration. CI sets
+#                       this to $GITHUB_REF_NAME so the Android About
+#                       screen mirrors `frpdeck-server version`.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."   # repo root
@@ -18,12 +22,13 @@ mkdir -p build android/app/libs
 
 TARGET="${FRPDECK_ABI:-android}"
 OUT="build/frpdeckmobile.aar"
+APP_VERSION="${APP_VERSION:-dev}"
 
-echo "→ gomobile bind target=${TARGET}"
+echo "→ gomobile bind target=${TARGET} appVersion=${APP_VERSION}"
 gomobile bind \
     -target="${TARGET}" \
     -androidapi=29 \
-    -ldflags="-checklinkname=0" \
+    -ldflags="-checklinkname=0 -X 'github.com/teacat99/FrpDeck/mobile/frpdeckmobile.appVersion=${APP_VERSION}'" \
     -o "${OUT}" \
     ./mobile/frpdeckmobile
 

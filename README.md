@@ -51,8 +51,8 @@ FrpDeck 是一个面向个人服务器、NAS、家庭实验室和小团队内网
 | Linux systemd / Windows Service | 可用 | `frpdeck-server install/start/stop/status` |
 | 飞牛 fnOS 应用包 | 可用 | x86 + ARM `.fpk`，应用中心一键安装 |
 | 群晖 DSM 7 SPK | 可用 | x86_64 + aarch64 `.spk`，套件中心手动安装 |
-| Android | 开发中 | WebView 复用 Web UI，VPN 能力按业务驱动 |
-| 桌面 GUI | 开发中 | Wails 形态已接入，真机 polish 继续推进 |
+| Android | 可用 | WebView 复用 Web UI，VPN 能力按业务驱动；GitHub Release 提供 5 个 APK（universal + 4 ABI） |
+| 桌面 GUI | 可用 | Wails (Linux/macOS/Windows)；macOS NSStatusItem 托盘 v0.1；CI 三平台产物上传 GitHub Release |
 
 ## 快速部署
 

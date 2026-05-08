@@ -28,18 +28,10 @@ import (
 	"github.com/teacat99/FrpDeck/internal/frpcd"
 )
 
-// appVersion is overridden at link time via
-//
-//	-ldflags "-X 'main.appVersion=v0.1.0'"
-//
-// so distribution channels (Docker images, GitHub Releases, NAS
-// packages) can stamp the running binary with the same tag they were
-// built from. Source-built / `go run` invocations keep the "dev"
-// sentinel and fall back to debug.ReadBuildInfo() in runVersion.
-var appVersion = "dev"
-
 // daemonVersion is exposed to the control package so a CLI ping
-// returns the same string as `frpdeck-server version`.
+// returns the same string as `frpdeck-server version`. The
+// underlying `appVersion` variable lives in version.go (no build
+// tag) so the wails entry point can read it too.
 func daemonVersion() string { return appVersion }
 
 func main() {
