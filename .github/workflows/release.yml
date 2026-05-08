@@ -15,6 +15,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Probe whether the optional Docker Hub credentials are set so
+      # the rest of this job can degrade to "GHCR only" when the
+      # operator hasn't configured DOCKERHUB_* secrets yet. We can't
+      # reference `secrets.*` directly from `if:` expressions, so the
+      # convention is to lift the boolean into a step output via env.
+      - name: Probe Docker Hub credentials
+        id: dh
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "${DH_USER}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo '::notice::DOCKERHUB_USERNAME not set; pushing only to ghcr.io. Set secrets.DOCKERHUB_USERNAME + DOCKERHUB_TOKEN to mirror to Docker Hub.'
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -22,6 +39,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: steps.dh.outputs.available == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -42,9 +60,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
+          # GHCR is always present; Docker Hub is conditional on the
+          # secrets probe above. metadata-action ignores blank lines
+          # in `images:`, so the ternary collapses cleanly when
+          # Docker Hub is unavailable.
           images: |
-            teacat99/frpdeck
             ghcr.io/${{ github.repository_owner }}/frpdeck
+            ${{ steps.dh.outputs.available == 'true' && 'teacat99/frpdeck' || '' }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -71,7 +93,6 @@ jobs:
 
   fnos-fpk:
     runs-on: ubuntu-latest
-    needs: docker
     permissions:
       contents: write
     steps:
@@ -114,7 +135,6 @@ jobs:
 
   synology-spk:
     runs-on: ubuntu-latest
-    needs: docker
     permissions:
       contents: write
     steps:
@@ -172,7 +192,6 @@ jobs:
   # environmental.
   android-apk:
     runs-on: ubuntu-latest
-    needs: docker
     permissions:
       contents: write
     continue-on-error: true
@@ -271,7 +290,6 @@ jobs:
   # the release. The Docker image, NAS packages, and APK build are the
   # primary artefacts; the desktop bundles are best-effort right now.
   wails-desktop:
-    needs: docker
     permissions:
       contents: write
     continue-on-error: true
