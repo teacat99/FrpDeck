@@ -16,7 +16,8 @@
 | 项目 | 说明 |
 |---|---|
 | 定位 | 自托管场景下的 frpc 管理器 / 多 frps 控制台 |
-| 当前状态 | 开发中，已完成 Web UI、服务化、Docker/NAS、远程代管、Android 基础、Profile、SubprocessDriver、独立 CLI 等主干能力 |
+| 当前版本 | [v0.7.0](https://github.com/teacat99/FrpDeck/releases/tag/v0.7.0)（首个公开 release，主线 P0–P10 全部落地；详见 [CHANGELOG](./CHANGELOG.md)） |
+| 当前状态 | 开发中，主干能力（Web UI / 服务化 / Docker / NAS / 远程代管 / Android / Profile / SubprocessDriver / 独立 CLI / Wails 桌面）已可用，进入真机回归与 polish 阶段 |
 | 内嵌 frp | `github.com/fatedier/frp` v0.68.x，跟随上游稳定版 |
 | 最低外部 frpc | v0.52.0（TOML/YAML/JSON 配置时代，不支持 INI 时代配置） |
 | 默认数据目录 | Docker: `/data`；Linux service/CLI: `/var/lib/frpdeck`；可通过 `FRPDECK_DATA_DIR` 覆盖 |
@@ -160,8 +161,11 @@ frpdeck-server version
 `frpdeck-server` 是常驻 daemon；`frpdeck` 是独立 CLI。CLI 优先直接读写 SQLite，daemon 运行时再通过 `<data_dir>/frpdeck.sock` 通知运行时同步。
 
 ```bash
-# 自救与诊断
+# 版本与诊断
+frpdeck version
 frpdeck doctor
+
+# 自救
 frpdeck user passwd admin
 frpdeck db backup /tmp/frpdeck.db
 frpdeck auth mode password
@@ -249,14 +253,25 @@ npm run build
 
 ## 路线图
 
-已完成主干：P0 脚手架、P1 桌面 MVP 主体、P2 服务化、P3 Docker/NAS、P4 生命周期、P5 远程代管/模板/导入/自检、P6/P7 Android 重写主线、P8 Profile/SubprocessDriver、P10 CLI。
+> 完整变更记录见 [CHANGELOG.md](./CHANGELOG.md)；细化的工程任务列表见 [`plan.md`](./plan.md)。
 
-后续重点：
+### 已完成（v0.7.0）
 
-- P9：群晖 SPK / 飞牛应用市场打包与分发。
-- 桌面 GUI polish：真机验收、托盘细节、macOS 状态栏。
-- Android 真机回归：WebView UI、自动登录、配置驱动 VPN。
-- CLI polish：更多脚本化输出格式、`logs` ring buffer 持久化探索、`completion fish` 等。
+P0 脚手架、P1 桌面 MVP 主体、P2 服务化、P3 Docker、P4 生命周期、P5 远程代管 / 模板 / 导入 / 自检、P6/P7 Android 重写主线、P8 Profile / SubprocessDriver、**P9 NAS 套件（飞牛 fpk + 群晖 SPK）**、P10 独立 CLI、macOS NSStatusItem 托盘、Wails / Android 全形态 CI matrix。
+
+### v0.7.x 期 polish（短期）
+
+- 真机回归：macOS 托盘、Android arm64、群晖 SPK / 飞牛 fpk 真机冒烟、Wails Win 桌面。
+- 安全 polish：access_token 黑名单或 TTL 缩短、audit `prev_jti` 改 hash。
+- 远程代管：`Tunnel.purpose` 字段（让 socks5 visitor 检测脱离启发式）、RemoteNode reaper 事件驱动。
+- 通知：ntfy 推送事件类型扩展。
+
+### v0.8 候选方向（待真机回归后定调）
+
+- 配置版本管理：Endpoint/Tunnel diff/rollback、profile 历史、import 预览增强。
+- 集群协同：多 FrpDeck 节点状态同步、远程代管心跳通道升级、B 侧 redeem CLI。
+- 可观测性：Prometheus `/metrics` 端点 + Grafana dashboard 模板。
+- 设计资源：Logo / 主题色 / Android 启动图标 / 通知 small icon。
 
 ## 与 PortPass 的关系
 
